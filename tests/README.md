@@ -18,6 +18,7 @@ Elke suite bouwt zijn eigen wegwerpomgeving in `/tmp` en ruimt die weer op.
 | `test_link_hygiene.py` | de link-sanitizer, duplicaatwacht en index-update in `gemini-book-runner.py` | 32 |
 | `test_github_sync.sh` | auto-commit, secret-rem, rebase-herstel en dry-run van `daily-github-sync.sh` | 32 |
 | `test_store_id.sh` | de store-ID-controle in `sync-blob-inbox.py` | 15 |
+| `test_automation_check.sh` | de verouderingscheck op geplande taken in `vault-status.py` | 16 |
 
 `fixture_vault.py` is geen suite maar het bouwsteentje eronder: het zet een
 synthetische vault met een handvol bekende pagina's neer.
@@ -38,6 +39,10 @@ stille fout duur is:
   secret in de wijziging wordt geweigerd in plaats van gecommit.
 - De **store-ID-controle** voorkomt dat de inbox-sync in de ene vault met het
   token van een andere draait en bestanden in de verkeerde `raw/` zet.
+- De **verouderingscheck** is de vangnetlaag onder alle drie: launchd haalt een
+  gemiste slag in als de Mac uit stond, maar een run die *faalt* meldde niets.
+  Op de dag dat de check werd toegevoegd bleek de websitecontrole al 37 uur stil
+  te staan zonder dat iets dat liet zien.
 
 ## Twee keuzes die uitleg verdienen
 

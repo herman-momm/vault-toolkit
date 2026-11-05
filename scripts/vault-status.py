@@ -25,6 +25,12 @@ Scant:
 import re, glob, os, sys, datetime, unicodedata
 from collections import defaultdict
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import vaultenv
+except ImportError:          # losse kopie zonder vaultenv ernaast
+    vaultenv = None
+
 
 def nfc(s):
     """Normaliseer naar NFC.
@@ -218,6 +224,80 @@ def sync_sources(pages, drift):
         open(f, "w", encoding="utf-8").write(s)
     return len(drift)
 
+# Geplande taken (macOS launchd). Elke run schrijft naar zijn logbestand,
+# ongeacht de uitkomst, dus de mtime van dat log is het signaal "heeft gedraaid".
+# Een gemiste of stilgevallen run was tot nu toe volledig onzichtbaar: launchd
+# haalt een slag in als de Mac uit stond, maar een run die *faalt* meldt niets.
+#
+# (naam, geplande tijd, logbestand, max_leeftijd_uren of None voor alleen-info)
+GEPLANDE_TAKEN = [
+    ("Git-sync alle repo's", "03:00", "daily-github-sync.log", 36),
+    ("Boek-orchestrator", "06:00", "daily-book-orchestrator.log", 36),
+]
+# Logs binnen de vault zelf, relatief aan de vaultroot.
+VAULT_TAKEN = [
+    ("Deze vault aan de beurt (boek)", "round-robin", "scripts/daily-book.log", None),
+    ("Websitecontrole", "07:15", "scripts/website-check.log", 36),
+]
+
+
+def _log_mtime(path):
+    try:
+        return datetime.datetime.fromtimestamp(os.path.getmtime(path))
+    except OSError:
+        return None
+
+
+def automation_status():
+    """Per geplande taak: wanneer draaide hij voor het laatst, en is dat te lang?
+
+    Retourneert (rijen, aantal_problemen). Een rij is
+    (naam, tijd, pad_of_None, laatste_datetime_of_None, leeftijd_uren_of_None,
+     max_uren_of_None, staat) met staat in {"ok", "oud", "ontbreekt", "info"}.
+    """
+    nu = datetime.datetime.now()
+    rijen, problemen = [], 0
+
+    taken = []
+    for naam, tijd, bestand, maxuur in GEPLANDE_TAKEN:
+        kandidaten = (vaultenv.config_candidates(bestand) if vaultenv
+                      else [os.path.expanduser(f"~/.config/histvault/{bestand}")])
+        pad = next((k for k in kandidaten if os.path.exists(k)), None)
+        taken.append((naam, tijd, pad, maxuur))
+    for naam, tijd, relpad, maxuur in VAULT_TAKEN:
+        vol = os.path.join(ROOT, relpad)
+        taken.append((naam, tijd, vol if os.path.exists(vol) else None, maxuur))
+
+    for naam, tijd, pad, maxuur in taken:
+        laatste = _log_mtime(pad) if pad else None
+        if laatste is None:
+            # Een ontbrekend log is alleen een probleem bij een taak die hier
+            # hoort te draaien; de websitecontrole loopt niet in elke vault.
+            if maxuur is not None and naam != "Websitecontrole":
+                rijen.append((naam, tijd, pad, None, None, maxuur, "ontbreekt"))
+                problemen += 1
+            continue
+        uren = (nu - laatste).total_seconds() / 3600
+        if maxuur is None:
+            staat = "info"
+        elif uren > maxuur:
+            staat = "oud"
+            problemen += 1
+        else:
+            staat = "ok"
+        rijen.append((naam, tijd, pad, laatste, uren, maxuur, staat))
+    return rijen, problemen
+
+
+def duur(uren):
+    """Leeftijd als korte, leesbare tekst."""
+    if uren < 1:
+        return f"{int(uren * 60)} min"
+    if uren < 48:
+        return f"{uren:.0f} uur"
+    return f"{uren / 24:.0f} dagen"
+
+
 def log_candidates():
     """Trek 'kandidaat'/'openstaand'/'nog niet'-flarden uit de laatste logregels."""
     path = os.path.join(WIKI, "log.md")
@@ -269,6 +349,7 @@ def main():
     gaps = section_lines(os.path.join(WIKI, "overview.md"), "Kennishiaten")
     candidates = log_candidates()
     stats = index_stats()
+    automation, auto_problemen = automation_status()
     today = datetime.date.today().isoformat()
 
     # drift tussen index-statistiek en werkelijkheid
@@ -310,6 +391,11 @@ def main():
     L.append(f"- {health(not src_drift and not idx_drift)} **Bronentelling** — {len(src_drift)} pagina('s) met een afwijkende `sources:`-waarde; {len(idx_drift)} index-regel(s) met een afwijkende `(bronnen: N)`")
     L.append(f"- {health(not backlog)} **Ingest-achterstand** — {len(backlog)} raw-bestand(en) zonder bronpagina")
     L.append(f"- {health(not drift)} **Tellingen** — {'kloppen met de index' if not drift else 'wijken af van de index'}")
+    auto_tekst = ("alle geplande taken hebben recent gedraaid" if not auto_problemen
+                  else f"{auto_problemen} geplande taak heeft te lang niet gedraaid"
+                  if auto_problemen == 1
+                  else f"{auto_problemen} geplande taken hebben te lang niet gedraaid")
+    L.append(f"- {health(not auto_problemen)} **Automatisering** — {auto_tekst}")
     L.append(f"- 📚 **Omvang** — {counts['sources']} bronnen · {counts['entities']} entiteiten · {counts['concepts']} concepten · {counts['queries']} queries · {total_pages} pagina's")
     L.append("")
 
@@ -406,6 +492,35 @@ def main():
         L.append("*(Geen recente kandidaat-notities in het log.)*")
     L.append("")
 
+    L.append("## 6. Automatisering (geplande taken)")
+    L.append("")
+    L.append("Wanneer draaide elke launchd-taak voor het laatst? De mtime van het "
+             "logbestand is het signaal: elke run schrijft daarin, ook een run die faalt. "
+             "Staat de Mac op het geplande tijdstip uit, dan haalt launchd de slag in — "
+             "de tijd hieronder is dus de echte starttijd.")
+    L.append("")
+    if automation:
+        L.append("| Taak | Gepland | Laatste run | Leeftijd | |")
+        L.append("|---|---|---|---|---|")
+        for naam, tijd, pad, laatste, uren, maxuur, staat in automation:
+            if staat == "ontbreekt":
+                L.append(f"| {naam} | {tijd} | *geen logbestand gevonden* | — | 🔴 |")
+                continue
+            vlag = {"ok": "🟢", "oud": "🔴", "info": "ℹ️"}[staat]
+            L.append(f"| {naam} | {tijd} | {laatste.strftime('%Y-%m-%d %H:%M')} | "
+                     f"{duur(uren)} | {vlag} |")
+        L.append("")
+        for naam, tijd, pad, laatste, uren, maxuur, staat in automation:
+            if staat == "oud":
+                L.append(f"- [ ] **{naam}** draaide {duur(uren)} niet (verwacht elke "
+                         f"{maxuur} uur). Kijk in `{pad}`.")
+            elif staat == "ontbreekt":
+                L.append(f"- [ ] **{naam}** heeft geen logbestand — heeft hij ooit gedraaid? "
+                         f"Controleer met `launchctl list | grep dagzoom`.")
+    else:
+        L.append("*(Geen logbestanden van geplande taken gevonden.)*")
+    L.append("")
+
     L.append("---")
     L.append("")
     L.append("## Jouw oordeel")
@@ -425,7 +540,8 @@ def main():
         fh.write("\n".join(L))
     print(f"status.md geschreven: {len(backlog)} ingest-achterstand, "
           f"{len(broken)} kapotte links, {len(orphans)} wezen, "
-          f"{len(drift)} drift-punten, {total_pages} pagina's")
+          f"{len(drift)} drift-punten, {auto_problemen} stille taken, "
+          f"{total_pages} pagina's")
 
 if __name__ == "__main__":
     main()

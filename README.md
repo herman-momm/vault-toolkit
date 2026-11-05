@@ -65,6 +65,25 @@ De twee `.sh`-scripts worden door launchd aangeroepen via een wrapper van drie
 regels in `~/.config/histvault/`, omdat launchd slecht omgaat met spaties in het
 iCloud-pad. De logica staat hier, in git; de wrapper geeft alleen door.
 
+## Tests
+
+```bash
+tests/run-tests.sh        # 79 checks over 3 suites
+tests/run-tests.sh -v     # met alle checks erbij
+```
+
+Regressietests voor de scripts die ongevraagd en zonder toezicht draaien: de
+link-sanitizer en duplicaatwacht van `gemini-book-runner.py`, de auto-commit en
+secret-rem van `daily-github-sync.sh`, en de store-ID-controle van
+`sync-blob-inbox.py`. Alles werkt met synthetische fixtures in `/tmp` — geen
+credentials, geen echte vault, en op één onschuldige mislukte API-aanroep na
+geen netwerk. Zie `tests/README.md` voor de details en voor het toevoegen van
+een suite.
+
+Draai ze na elke wijziging in `scripts/`. Deze code beheert drie vaults en
+commit zelfstandig, dus een stille regressie is duur: de suite is ontstaan nadat
+een geautomatiseerde boekenrun 52 kapotte links achterliet.
+
 ## Credentials
 
 `vaultenv.py` bepaalt waar een credentialbestand (`wp.env`, `capacities.env`,

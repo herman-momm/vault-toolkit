@@ -10,14 +10,23 @@ Gebruik:
   python3 scripts/sync-blob-inbox.py            # haalt alles op
   python3 scripts/sync-blob-inbox.py --dry-run   # toont alleen wat er klaarstaat
 
-Vereist BLOB_READ_WRITE_TOKEN in de omgeving (Vercel project voor déze vault
--> Storage -> de blob-store -> .env.local tabblad). Deze generieke naam is
-voor ClaudeVault; HistVault gebruikt de _HIST-gesuffixte variant
-(BLOB_READ_WRITE_TOKEN_HIST/BLOB_STORE_ID_HIST) zodat beide niet botsen als
-ze in dezelfde omgeving/container staan. BLOB_STORE_ID is optioneel maar
-aanbevolen: als gezet, wordt gecontroleerd dat het token ook echt bij die
-store hoort (voorkomt dat dit script per ongeluk met een andere vault's
-token draait en stilletjes "inbox is leeg" rapporteert).
+Het token wordt gezocht in deze volgorde (en het script meldt welke bron het
+gebruikte):
+  1. --token
+  2. de vault-specifieke env-var: BLOB_READ_WRITE_TOKEN_HIST voor HistVault,
+     _GREEN voor GroeneVault, de generieke naam voor ClaudeVault — zodat drie
+     vaults in één omgeving elkaars store niet raken
+  3. BLOB_READ_WRITE_TOKEN (generiek)
+  4. `web/.env.local` van de vault zelf — lokaal vaak het enige exemplaar,
+     omdat de tokens in het Vercel-project per vault leven
+BLOB_STORE_ID (zelfde zoekorde, zelfde suffixen) is optioneel maar aanbevolen:
+als die gezet is, wordt gecontroleerd dat het token ook echt bij die store
+hoort. Dat voorkomt dat dit script met het token van een andere vault draait
+en stilletjes "inbox is leeg" rapporteert — of, erger, de bestanden van de ene
+vault in de raw/ van een andere zet.
+
+Draai dit script vanuit de vaultroot (of zet $VAULT_ROOT): de doelmap is
+<vaultroot>/raw.
 """
 import sys
 import os
@@ -28,7 +37,13 @@ import subprocess
 import html
 from html.parser import HTMLParser
 
-RAW_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "raw")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import vaultenv
+
+# De vaultroot komt uit de werkmap (of $VAULT_ROOT), niet uit de locatie van dit
+# script: als gedeelde toolkit-kopie zou dat laatste naar vault-toolkit/raw wijzen.
+VAULT_DIR = vaultenv.vault_root(marker="raw")
+RAW_DIR = os.path.join(VAULT_DIR, "raw")
 API_BASE = "https://vercel.com/api/blob"
 API_VERSION = "13"
 INBOX_PREFIX = "inbox/"
@@ -214,6 +229,25 @@ def download(url, dest_path, token):
     return proc.returncode == 0
 
 
+def resolve_secret(explicit, base_name):
+    """Zoek een Blob-sleutel voor DEZE vault en meld waar hij vandaan komt.
+
+    Volgorde: expliciet meegegeven waarde, dan de vault-specifieke env-var
+    (`..._HIST`/`..._GREEN`), dan de generieke env-var, dan `web/.env.local`
+    van de vault zelf — lokaal vaak het enige exemplaar, omdat de tokens in
+    het Vercel-project per vault leven. Retourneert (waarde, herkomst).
+    """
+    if explicit:
+        return explicit, "command line"
+    for name in vaultenv.suffixed_names(base_name):
+        if os.environ.get(name):
+            return os.environ[name], f"omgeving (${name})"
+    local = vaultenv.vault_dotenv()
+    if local.get(base_name):
+        return local[base_name], f"{os.path.join('web', '.env.local')} van {vaultenv.vault_name()}"
+    return None, ""
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="alleen tonen, niets downloaden of verwijderen")
@@ -222,12 +256,16 @@ def main():
     parser.add_argument("--store-id", help=f"Verwachte store-ID, als sanity-check tegen het token (overschrijft {STORE_ID_ENV_VAR})")
     args = parser.parse_args()
 
-    token = args.token or os.environ.get(TOKEN_ENV_VAR)
+    token, token_src = resolve_secret(args.token, TOKEN_ENV_VAR)
     if not token:
-        print(f"Geen token: geef --token mee of zet {TOKEN_ENV_VAR} in de omgeving.", file=sys.stderr)
+        names = " of ".join(vaultenv.suffixed_names(TOKEN_ENV_VAR))
+        print(f"Geen token gevonden voor {vaultenv.vault_name()}: geef --token mee, zet "
+              f"{names} in de omgeving, of zet {TOKEN_ENV_VAR} in {os.path.join('web', '.env.local')} "
+              f"van deze vault.", file=sys.stderr)
         sys.exit(1)
+    print(f"Token uit: {token_src}")
 
-    expected_store_id = args.store_id or os.environ.get(STORE_ID_ENV_VAR)
+    expected_store_id, _ = resolve_secret(args.store_id, STORE_ID_ENV_VAR)
     if expected_store_id:
         actual_store_id = token_store_id(token)
         if actual_store_id and actual_store_id != expected_store_id:

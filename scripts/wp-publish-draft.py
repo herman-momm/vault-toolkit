@@ -4,38 +4,32 @@
 Gebruik:
   python3 scripts/wp-publish-draft.py <export.md> [--title "Titel"] [--status draft]
 
-Leest credentials uit (in volgorde): $VAULT_WP_ENV, anders
-~/.config/<vaultnaam>/wp.env (vaultnaam = lowercase basename van de cwd —
-draai dit script dus altijd vanuit de vault-root), anders env vars
-(WP_URL, WP_USER, WP_APP_PASSWORD, WP_GS_BOOKS_LICENSE) — dat laatste is het
-normale pad in een cloud-sessie zonder lokaal credentialbestand.
+Leest credentials uit het eerste bestand dat bestaat:
+  1. $VAULT_WP_ENV
+  2. ~/.config/<vaultnaam>/wp.env   (per-vault override; vaultnaam = lowercase
+     basename van de cwd, draai dit script dus vanuit de vaultroot)
+  3. ~/.config/vaults/wp.env        (gedeeld door alle vaults)
+  4. ~/.config/histvault/wp.env     (historisch gedeelde locatie; alle drie de
+     vaults publiceren vandaag naar dezelfde site met deze credentials)
+Ontbreken ze alle vier, dan vallen de losse env vars in (WP_URL, WP_USER,
+WP_APP_PASSWORD, WP_GS_BOOKS_LICENSE) — het normale pad in een cloud-sessie
+zonder lokaal credentialbestand.
 
 Zet ALTIJD status=draft tenzij expliciet anders; publiceert dus niet openbaar.
 Print bij succes de post-id en de bewerk-URL (wp-admin).
 """
 import sys, os, re, json, argparse, tempfile, subprocess, html as _html
 
-ENV = os.environ.get("VAULT_WP_ENV") or os.path.expanduser(
-    f"~/.config/{os.path.basename(os.getcwd()).lower()}/wp.env"
-)
-VAULT_NAME = os.path.basename(os.getcwd()) or "vault"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import vaultenv
+
+KEYS = ("WP_URL", "WP_USER", "WP_APP_PASSWORD", "WP_GS_BOOKS_LICENSE")
+VAULT_NAME = vaultenv.vault_name()
+ENV = vaultenv.config_path("wp.env")
 
 
 def load_env():
-    d = {}
-    if os.path.exists(ENV):
-        with open(ENV) as f:
-            for line in f:
-                line = line.rstrip("\n")
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                d[k.strip()] = v
-    # Val terug op environment variables (cloud-omgevingen zonder lokaal wp.env-bestand).
-    for key in ("WP_URL", "WP_USER", "WP_APP_PASSWORD", "WP_GS_BOOKS_LICENSE"):
-        if key not in d and key in os.environ:
-            d[key] = os.environ[key]
-    return d
+    return vaultenv.load_config("wp.env", KEYS)
 
 
 def esc(s):

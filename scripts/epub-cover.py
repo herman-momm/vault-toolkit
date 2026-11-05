@@ -6,9 +6,18 @@ Zonder uitvoerpad schrijft het naar exports/covers/<slug>.<ext> en print dat pad
 """
 import zipfile, re, os, sys, json
 
-# Dit script is vault-agnostic (vault-toolkit): draai het altijd vanuit de
-# root van de vault die je verwerkt, nooit vanuit de toolkit-checkout zelf.
-VAULT = os.getcwd()
+# Vault-agnostisch (vault-toolkit): draai dit vanuit de root van de vault die
+# je verwerkt. Wijkt de werkmap af, dan valt het script terug op $VAULT_ROOT en
+# daarna op de map boven dit script — de eerste die een raw/-map bevat.
+def _vault_root():
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for cand in (os.environ.get("VAULT_ROOT"), os.getcwd(), here):
+        if cand and os.path.isdir(os.path.join(cand, "raw")):
+            return os.path.abspath(cand)
+    return os.getcwd()
+
+
+VAULT = _vault_root()
 BAD = ('bcover', 'back', 'map', 'kaart', 'katern', 'beeld', 'chapter', '_ch', '_map',
        'fig_', 'military', 'friedrich', 'hanged', 'mazzini', 'zeitung', 'illustr',
        'pg1', 'pg2', 'img0', 'portrait')

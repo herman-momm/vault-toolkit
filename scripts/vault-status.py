@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """
-vault-status.py — deterministische statusgenerator voor de ClaudeVault.
+vault-status.py — deterministische statusgenerator voor een LLM-wiki-vault.
 
-Analoog aan het render-script van de "chief of staff"-masterclass: dit script
-GENEREERT niets vrijs, het SCANT de vault en vult een vast sjabloon. Het
-signaleert alleen — beslissen (de "last mile") blijft mensenwerk.
+Vault-agnostisch: dezelfde implementatie dient ClaudeVault, HistVault en
+GroeneVault. Dit script GENEREERT niets vrijs, het SCANT de vault en vult een
+vast sjabloon. Het signaleert alleen — beslissen (de "last mile") blijft
+mensenwerk.
 
-Gebruik:  python3 scripts/vault-status.py
+Gebruik:  python3 scripts/vault-status.py [--vault <pad>] [--sync-sources]
 Effect:   (her)schrijft wiki/status.md met de actuele stand.
+
+De vaultroot wordt bepaald via `--vault`, anders $VAULT_ROOT, anders de
+huidige map, anders de map boven dit script — de eerste die een `wiki/`-map
+bevat. Draaien vanuit de vaultroot blijft dus de normale werkwijze, maar een
+verkeerde werkmap levert geen stille lege scan meer op.
 
 Scant:
   - paginatellingen per type + drift t.o.v. de index-statistiektabel
@@ -16,12 +22,39 @@ Scant:
   - kennishiaten: de lijst uit wiki/overview.md
   - kandidaten/openstaande punten: uit de laatste logboekregels
 """
-import re, glob, os, sys, datetime
+import re, glob, os, sys, datetime, unicodedata
 from collections import defaultdict
 
-# Dit script is vault-agnostic (vault-toolkit): draai het altijd vanuit de
-# root van de vault die je verwerkt, nooit vanuit de toolkit-checkout zelf.
-ROOT = os.getcwd()
+
+def nfc(s):
+    """Normaliseer naar NFC.
+
+    macOS bewaart bestandsnamen in NFD (bv. "Niño" = i + los accent), terwijl
+    frontmatter en linktekst meestal NFC zijn. Zonder deze normalisatie
+    matchen visueel identieke namen niet en meldt het dashboard een
+    niet-bestaande ingest-achterstand of kapotte raw-link.
+    """
+    return unicodedata.normalize("NFC", s)
+
+
+def vault_root(argv):
+    """Bepaal de vaultroot: --vault, $VAULT_ROOT, cwd, of de map boven dit script."""
+    explicit = None
+    if "--vault" in argv:
+        i = argv.index("--vault")
+        if i + 1 < len(argv):
+            explicit = argv[i + 1]
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for cand in (explicit, os.environ.get("VAULT_ROOT"), os.getcwd(), here):
+        if cand and os.path.isdir(os.path.join(cand, "wiki")):
+            return os.path.abspath(cand)
+    sys.stderr.write(
+        "Geen vault gevonden (geen wiki/-map in --vault, $VAULT_ROOT, de huidige map "
+        "of de map boven dit script). Draai het script vanuit de vaultroot.\n")
+    sys.exit(2)
+
+
+ROOT = vault_root(sys.argv)
 WIKI = os.path.join(ROOT, "wiki")
 RAW = os.path.join(ROOT, "raw")
 
@@ -51,7 +84,9 @@ def analyse_links(pages):
             if t.startswith("#"):
                 continue
             if t.startswith("raw/"):
-                if not glob.glob(os.path.join(RAW, glob.escape(t[4:]) + "*")) and not log_only:
+                stem = nfc(t[4:])
+                found = any(nfc(n).startswith(stem) for n in os.listdir(RAW))
+                if not found and not log_only:
                     broken.append((r, t))
                 continue
             if t in pages:
@@ -70,15 +105,15 @@ def analyse_links(pages):
     return sorted(set(broken)), orphans
 
 def ingest_backlog():
-    covered = "".join(open(f, encoding="utf-8").read()
-                      for f in glob.glob(os.path.join(WIKI, "sources", "*.md")))
+    covered = nfc("".join(open(f, encoding="utf-8").read()
+                          for f in glob.glob(os.path.join(WIKI, "sources", "*.md"))))
     out = []
     for name in sorted(os.listdir(RAW)):
         if name.startswith(".") or name == "assets":
             continue
         if not os.path.isfile(os.path.join(RAW, name)):
             continue
-        if name not in covered:
+        if nfc(name) not in covered:
             out.append(name)
     return out
 

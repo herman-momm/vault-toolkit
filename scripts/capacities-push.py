@@ -3,26 +3,23 @@
 capacities-push.py — Universele Capacities API bridge.
 Ondersteunt Boek-aanmaak met Omslagafbeelding, Auteursinformatie (Wikipedia bio + foto)
 en Daily Note updates.
-Leest token en space-id uit ~/.config/histvault/capacities.env.
+Leest token en space-id via vaultenv uit capacities.env (per-vault override,
+anders de gedeelde configmap) of uit de environment variables
+CAPACITIES_TOKEN / CAPACITIES_SPACE_ID.
 """
 import sys, os, re, json, argparse, urllib.request, urllib.parse, ssl
 
-ENV_PATH = os.path.expanduser("~/.config/histvault/capacities.env")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import vaultenv
+
 BASE_URL = "https://api.capacities.io"
+KEYS = ("CAPACITIES_TOKEN", "CAPACITIES_SPACE_ID")
+ENV_PATH = vaultenv.config_path("capacities.env")
 
 
 def load_env():
-    token = os.environ.get("CAPACITIES_TOKEN")
-    space_id = os.environ.get("CAPACITIES_SPACE_ID")
-    if os.path.exists(ENV_PATH):
-        with open(ENV_PATH) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("CAPACITIES_TOKEN="):
-                    token = line.split("=", 1)[1].strip("\"'")
-                elif line.startswith("CAPACITIES_SPACE_ID="):
-                    space_id = line.split("=", 1)[1].strip("\"'")
-    return token, space_id
+    cfg = vaultenv.load_config("capacities.env", KEYS)
+    return cfg.get("CAPACITIES_TOKEN"), cfg.get("CAPACITIES_SPACE_ID")
 
 
 def api_request(endpoint, data=None, method="GET", token=None):
@@ -130,7 +127,8 @@ def create_book(title: str, description: str, year: int, markdown_file: str, cov
 def main():
     token, space_id = load_env()
     if not token or not space_id:
-        sys.exit("Geen Capacities token of space-id gevonden in ~/.config/histvault/capacities.env")
+        sys.exit(f"Geen Capacities token of space-id gevonden (gezocht in {ENV_PATH} "
+                 "en in de environment variables CAPACITIES_TOKEN/CAPACITIES_SPACE_ID)")
 
     parser = argparse.ArgumentParser(description="Capacities API tool")
     parser.add_argument("--daily-note", help="Markdown-tekst om aan daily note toe te voegen")

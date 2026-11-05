@@ -9,21 +9,22 @@ import ssl
 import urllib.request
 import urllib.error
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import vaultenv
+
+
 def load_env():
-    env_file = os.path.expanduser("~/.config/histvault/claude.env")
-    if os.path.exists(env_file):
-        with open(env_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip())
+    """Zet de sleutels uit claude.env in de omgeving (bestaande waarden blijven staan)."""
+    for k, v in vaultenv.read_dotenv(vaultenv.config_path("claude.env")).items():
+        if k != "_path":
+            os.environ.setdefault(k, v)
 
 def main():
     load_env()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("GEMINI_API_KEY niet gevonden in omgeving of ~/.config/histvault/claude.env", file=sys.stderr)
+        print(f"GEMINI_API_KEY niet gevonden in de omgeving of in "
+              f"{vaultenv.config_path('claude.env')}", file=sys.stderr)
         sys.exit(1)
 
     if len(sys.argv) < 2:

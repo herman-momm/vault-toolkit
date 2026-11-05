@@ -50,6 +50,7 @@ shim werkt ook als je hem van buiten de vault aanroept.
 | `pdf-outline.py` | Print de outline/structuur van een PDF |
 | `epub-cover.py` | Cover-afbeelding uit een EPUB halen → `exports/covers/` |
 | `md2pdf.py` | Export-markdown naar huisstijl-PDF (A4, tabellen, callouts, inline afbeeldingen) |
+| `md2docx.py` | Dezelfde markdown-subset naar huisstijl-Word (.docx), accentkleur `#1F3864` |
 | `gemini-book-runner.py` | Volautomatische boeksamenvatting via Gemini (fallback als de Claude CLI aan zijn limiet zit) |
 | `gemini-fallback.py` | Kale Gemini API-caller voor losse vault-taken |
 | `capacities-push.py` | Capacities API: Boek-objecten, pagina's, daily note |

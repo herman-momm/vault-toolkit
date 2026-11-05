@@ -214,7 +214,13 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
     if os.path.exists(cap_script):
         daily_msg = f"📚 **{data['title']}** — {data['author']} ({data.get('year', '')})\nUitgebreide boeksamenvatting en analyse verwerkt in de vault."
         subprocess.run([sys.executable, cap_script, "--daily-note", daily_msg], check=False)
-        cap_cmd = [sys.executable, cap_script, "--book-md", export_file, "--title", data['title'], "--desc", data['author']]
+        cap_cmd = [
+            sys.executable, cap_script,
+            "--book-md", export_file,
+            "--title", data['title'],
+            "--author", data['author'],
+            "--desc", f"Boek van {data['author']}"
+        ]
         if data.get("year"):
             cap_cmd.extend(["--year", str(data['year'])])
         subprocess.run(cap_cmd, check=False)

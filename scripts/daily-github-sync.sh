@@ -15,10 +15,15 @@
 #      Is de branch uiteengelopen (push geweigerd), dan rebase op origin en
 #      opnieuw pushen; bij een conflict: rebase afbreken en melden.
 #
-# Veiligheidsrem: komt er een bestand in de commit dat op een secret lijkt
-# (.env, *token*, *secret*, *credential*, *.pem/key), dan wordt die repo
-# OVERGESLAGEN en luid gemeld. De .gitignore's dekken dit al, maar een
-# onbeheerde `git add -A` om 03:00 verdient een tweede slot.
+# Veiligheidsrem, twee lagen: komt er een bestand in de commit waarvan de NAAM
+# op een secret lijkt (.env, *token*, *secret*, *credential*, *.pem/key), óf
+# waarvan de INHOUD een herkenbare sleutel bevat (cap-api-, vercel_blob_rw_,
+# sk-, ghp_, AKIA…, xox…, een PRIVATE KEY-blok), dan wordt die repo
+# OVERGESLAGEN en luid gemeld. De .gitignore's dekken de bekende bestanden al,
+# maar een onbeheerde `git add -A` om 03:00 verdient een tweede slot — en de
+# naamcheck alleen is niet genoeg: op 5 nov 2026 stonden er in ClaudeVault twee
+# losse experimentscripts (inspect_personen.py, test_cap.py) met een Capacities
+# API-token in platte tekst, die geen enkele naamregel zou hebben tegengehouden.
 #
 # Overrides (voor een test of een eenmalige run):
 #   VAULT_WORKSPACE=<pad>     andere werkruimte
@@ -64,11 +69,50 @@ rotate_log() {
   fi
 }
 
-# Staat er iets in de staged set dat op een secret lijkt?
-staged_secrets() {
-  git -C "$1" diff --cached --name-only \
+# Herkenbare sleutelvormen in bestandsinhoud. Bewust nauw gehouden: liever een
+# gemiste exoot dan elke nacht een valse weigering op gewone vaultinhoud.
+SECRET_CONTENT_RE='cap-api-[A-Za-z0-9_-]{16}|vercel_blob_rw_[A-Za-z0-9_-]{16}|sk-[A-Za-z0-9]{20}|sk-ant-[A-Za-z0-9_-]{16}|ghp_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9_]{20}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+SECRET_SCAN_MAX_BYTES="${VAULT_SYNC_SECRET_MAX_BYTES:-2000000}"
+
+# Verdachte NAAM in een NUL-gescheiden padenstroom op stdin.
+scan_names() {
+  tr '\0' '\n' \
     | grep -iE '(^|/)\.env|(^|/)[^/]*(secret|credential|token)[^/]*\.(env|json|txt|yml|yaml)$|\.(pem|p12|key)$' \
     || true
+}
+
+# Sleutel IN de inhoud, voor een NUL-gescheiden padenstroom op stdin. Binaire
+# bestanden (grep -I) en grote bestanden (PDF's, EPUB's) worden overgeslagen.
+scan_contents() {
+  local dir="$1" f size
+  while IFS= read -r -d '' f; do
+    [ -f "$dir/$f" ] || continue
+    size=$(wc -c < "$dir/$f" 2>/dev/null | tr -d ' ')
+    if [ -n "$size" ] && [ "$size" -gt "$SECRET_SCAN_MAX_BYTES" ]; then continue; fi
+    if grep -I -q -E "$SECRET_CONTENT_RE" "$dir/$f" 2>/dev/null; then
+      echo "$f"
+    fi
+  done
+}
+
+# Verdachte bestanden in de STAGED set (beide lagen, zonder dubbele regels).
+staged_secrets() {
+  local dir="$1"
+  {
+    git -C "$dir" diff --cached --name-only -z | scan_names
+    git -C "$dir" diff --cached --name-only -z | scan_contents "$dir"
+  } | sort -u | grep -v '^$' || true
+}
+
+# Verdachte bestanden in de WERKMAP (gewijzigd + ongetrackt, .gitignore
+# gerespecteerd). Nodig voor de dry-run, die niets staged en anders zou melden
+# dat hij bestanden zou committen die hij in werkelijkheid zou weigeren.
+dirty_secrets() {
+  local dir="$1"
+  {
+    git -C "$dir" ls-files -moz --exclude-standard | scan_names
+    git -C "$dir" ls-files -moz --exclude-standard | scan_contents "$dir"
+  } | sort -u | grep -v '^$' || true
 }
 
 # Leg ongecommit werk vast. Retour: 0 = commit gemaakt, 1 = niets te doen, 2 = geweigerd.
@@ -79,6 +123,13 @@ commit_worktree() {
   [ "$dirty" -eq 0 ] && return 1
 
   if [ "$DRY_RUN" = "1" ]; then
+    local would
+    would=$(dirty_secrets "$dir")
+    if [ -n "$would" ]; then
+      log "[$repo] DRY-RUN: zou deze repo WEIGEREN (dus ook niet pushen) — verdacht bestand(en):"
+      while IFS= read -r s; do [ -n "$s" ] && log "[$repo]    $s"; done <<< "$would"
+      return 2
+    fi
     log "[$repo] DRY-RUN: zou $dirty bestand(en) committen."
     return 1
   fi

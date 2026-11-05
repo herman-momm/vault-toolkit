@@ -65,17 +65,36 @@ De twee `.sh`-scripts worden door launchd aangeroepen via een wrapper van drie
 regels in `~/.config/histvault/`, omdat launchd slecht omgaat met spaties in het
 iCloud-pad. De logica staat hier, in git; de wrapper geeft alleen door.
 
+## Geplande taken (`launchd/`)
+
+De plists die het schema bepalen (03:00 sync, 06:00 boek, 07:15 sitecheck) en de
+drie wrappers die ze aanroepen, staan in `launchd/`. Dat was tot november 2026
+het enige deel van deze opzet dat alleen op het systeem bestond en in geen enkele
+repo.
+
+```bash
+launchd/install.sh            # vergelijkt het systeem met git
+launchd/install.sh --install  # zet alles neer en herlaadt het in launchd
+launchd/install.sh --adopt    # neemt een handmatige systeemwijziging over in git
+```
+
+Zie `launchd/README.md` voor de drie lagen (plist → wrapper → logica), het
+terugzetten na een schijfcrash en de twee valkuilen die het al eens misgingen:
+een logpad in iCloud (stille `EX_CONFIG 78`) en de letterlijke `/Users/herman`
+in de plists.
+
 ## Tests
 
 ```bash
-tests/run-tests.sh        # 95 checks over 4 suites
+tests/run-tests.sh        # 170 checks over 5 suites
 tests/run-tests.sh -v     # met alle checks erbij
 ```
 
 Regressietests voor de scripts die ongevraagd en zonder toezicht draaien: de
 link-sanitizer en duplicaatwacht van `gemini-book-runner.py`, de auto-commit en
 secret-rem van `daily-github-sync.sh`, de store-ID-controle van
-`sync-blob-inbox.py`, en de verouderingscheck op de geplande taken. Alles werkt met synthetische fixtures in `/tmp` — geen
+`sync-blob-inbox.py`, de verouderingscheck op de geplande taken, en het schema en
+de wrappers in `launchd/`. Op die laatste na werkt alles met synthetische fixtures in `/tmp` — geen
 credentials, geen echte vault, en op één onschuldige mislukte API-aanroep na
 geen netwerk. Zie `tests/README.md` voor de details en voor het toevoegen van
 een suite.

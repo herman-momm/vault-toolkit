@@ -1,6 +1,7 @@
 # Tests
 
-Regressietests voor de scripts in `scripts/`. Draai ze na elke wijziging daar:
+Regressietests voor de scripts in `scripts/` en voor het launchd-schema in
+`launchd/`. Draai ze na elke wijziging daar:
 
 ```bash
 tests/run-tests.sh        # samenvatting per suite
@@ -9,7 +10,9 @@ tests/run-tests.sh -v     # met alle checks erbij
 
 Alles is zelfstandig: geen netwerk nodig (op één onschuldige uitzondering na,
 zie hieronder), geen credentials, en geen van de echte vaults wordt aangeraakt.
-Elke suite bouwt zijn eigen wegwerpomgeving in `/tmp` en ruimt die weer op.
+Elke suite bouwt zijn eigen wegwerpomgeving in `/tmp` en ruimt die weer op —
+behalve `test_launchd.sh`, dat niets neerzet en alleen de bestanden in
+`launchd/` leest.
 
 ## De suites
 
@@ -19,14 +22,15 @@ Elke suite bouwt zijn eigen wegwerpomgeving in `/tmp` en ruimt die weer op.
 | `test_github_sync.sh` | auto-commit, secret-rem, rebase-herstel en dry-run van `daily-github-sync.sh` | 32 |
 | `test_store_id.sh` | de store-ID-controle in `sync-blob-inbox.py` | 15 |
 | `test_automation_check.sh` | de verouderingscheck op geplande taken in `vault-status.py` | 16 |
+| `test_launchd.sh` | het schema en de wrappers in `launchd/`, en de dekking van `install.sh` | 75 |
 
 `fixture_vault.py` is geen suite maar het bouwsteentje eronder: het zet een
 synthetische vault met een handvol bekende pagina's neer.
 
-## Waarom deze drie, en niet iets anders
+## Waarom deze, en niet iets anders
 
-Alle drie bewaken code die **ongevraagd en zonder toezicht** draait, en waar een
-stille fout duur is:
+Ze bewaken allemaal code die **ongevraagd en zonder toezicht** draait, en waar
+een stille fout duur is:
 
 - De **boekenrunner** liet op 5 november 2026 in HistVault 52 kapotte links en
   een duplicaat-bronpagina achter. Het model schreef Obsidian-titellinks
@@ -43,8 +47,13 @@ stille fout duur is:
   gemiste slag in als de Mac uit stond, maar een run die *faalt* meldde niets.
   Op de dag dat de check werd toegevoegd bleek de websitecontrole al 37 uur stil
   te staan zonder dat iets dat liet zien.
+- Het **launchd-schema** is de laag waar al die taken aan hangen. De reden dat de
+  websitecontrole 37 uur stil stond, was een logpad in iCloud: launchd kan het
+  proces dan niet starten en faalt met `EX_CONFIG 78` — geen regel in het log,
+  geen melding. Die ene eigenschap is nu een test, net als de wrappers die naar
+  een script in git moeten wijzen in plaats van naar `~/.config`.
 
-## Twee keuzes die uitleg verdienen
+## Drie keuzes die uitleg verdienen
 
 **Synthetische fixtures, geen echte vault.** De eerste versie van de
 hygiënetests toetste tegen HistVault en controleerde letterlijk "608 pagina's"
@@ -60,6 +69,16 @@ assertions kijken alleen naar de regel die het script vóór die aanroep print, 
 offline gelden ze net zo goed. Het volledige pad met een echt token — downloaden
 en daarna uit de inbox verwijderen — wordt hierdoor níet getoetst; daar is een
 echte store voor nodig.
+
+**`test_launchd.sh` toetst de echte bestanden.** De uitzondering op de regel
+hierboven, en wel met opzet: bij de andere suites is de *logica* het testobject
+en de vault toevallige invoer, hier is de *inhoud* van de plists zelf het
+testobject. Een fixture-plist zou niets zeggen over de taak die om 03:00 draait.
+De suite kijkt daarbij naar wat er in `launchd/` staat, niet naar wat er op het
+systeem geladen is — of die twee nog gelijk zijn, is de vraag van
+`launchd/install.sh --check` en niet van een test. Wel geldt één aanname: deze
+repo staat naast de vaults in dezelfde werkruimte, want anders valt het doelpad
+van een wrapper daarbuiten.
 
 ## Een suite toevoegen
 

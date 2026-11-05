@@ -19,11 +19,17 @@ gebruikte):
   3. BLOB_READ_WRITE_TOKEN (generiek)
   4. `web/.env.local` van de vault zelf — lokaal vaak het enige exemplaar,
      omdat de tokens in het Vercel-project per vault leven
-BLOB_STORE_ID (zelfde zoekorde, zelfde suffixen) is optioneel maar aanbevolen:
-als die gezet is, wordt gecontroleerd dat het token ook echt bij die store
-hoort. Dat voorkomt dat dit script met het token van een andere vault draait
-en stilletjes "inbox is leeg" rapporteert — of, erger, de bestanden van de ene
-vault in de raw/ van een andere zet.
+De verwachte store-ID wordt gezocht in deze volgorde:
+  1. --store-id
+  2. `scripts/blob-store-id.txt` van de vault — staat in git, en is daarmee de
+     enige bron die een `vercel env pull` niet kan overschrijven
+  3. BLOB_STORE_ID uit de omgeving of uit `web/.env.local` (zelfde suffixen als
+     het token)
+Is er een verwachte store-ID bekend, dan wordt gecontroleerd dat het token ook
+echt bij die store hoort; zo niet, dan breekt de sync af. Dat voorkomt dat dit
+script met het token van een andere vault draait en stilletjes "inbox is leeg"
+rapporteert — of, erger, de bestanden van de ene vault in de raw/ van een
+andere zet. Een store-ID is geen geheim: hij staat in elke publieke blob-URL.
 
 Draai dit script vanuit de vaultroot (of zet $VAULT_ROOT): de doelmap is
 <vaultroot>/raw.
@@ -49,6 +55,8 @@ API_VERSION = "13"
 INBOX_PREFIX = "inbox/"
 TOKEN_ENV_VAR = "BLOB_READ_WRITE_TOKEN"
 STORE_ID_ENV_VAR = "BLOB_STORE_ID"
+# Pad (relatief aan de vaultroot) van het in git vastgelegde store-ID.
+STORE_ID_FILE = os.path.join("scripts", "blob-store-id.txt")
 
 
 class SimpleHTMLToMarkdown(HTMLParser):
@@ -248,6 +256,29 @@ def resolve_secret(explicit, base_name):
     return None, ""
 
 
+def resolve_store_id(explicit):
+    """Verwachte store-ID voor DEZE vault, met herkomst.
+
+    Volgorde: --store-id, dan `scripts/blob-store-id.txt`, dan de env-var- en
+    `web/.env.local`-route van resolve_secret(). Het bestand staat vóór die
+    laatste twee omdat het de enige bron is die in git staat: `vercel env pull`
+    herschrijft `web/.env.local` volledig, dus een store-ID die alleen daar
+    staat kan ongemerkt verdwijnen — en daarmee de controle zelf.
+    """
+    if explicit:
+        return explicit, "command line"
+    path = os.path.join(VAULT_DIR, STORE_ID_FILE)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                value = line.split("#", 1)[0].strip()
+                if value:
+                    return value, STORE_ID_FILE
+    except OSError:
+        pass
+    return resolve_secret(None, STORE_ID_ENV_VAR)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="alleen tonen, niets downloaden of verwijderen")
@@ -265,17 +296,31 @@ def main():
         sys.exit(1)
     print(f"Token uit: {token_src}")
 
-    expected_store_id, _ = resolve_secret(args.store_id, STORE_ID_ENV_VAR)
-    if expected_store_id:
-        actual_store_id = token_store_id(token)
-        if actual_store_id and actual_store_id != expected_store_id:
-            print(
-                f"Store-ID mismatch: het token wijst naar {actual_store_id}, maar "
-                f"{STORE_ID_ENV_VAR} is {expected_store_id}. Dit is waarschijnlijk het "
-                f"token van een andere vault — sync afgebroken.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    expected_store_id, store_src = resolve_store_id(args.store_id)
+    actual_store_id = token_store_id(token)
+    if not expected_store_id:
+        print(
+            f"Let op: geen verwachte store-ID bekend, dus niet gecontroleerd of dit "
+            f"token bij {vaultenv.vault_name()} hoort. Zet hem in {STORE_ID_FILE}.",
+            file=sys.stderr,
+        )
+    elif not actual_store_id:
+        print(
+            f"Let op: tokenvorm niet herkend, dus niet gecontroleerd tegen de "
+            f"store-ID uit {store_src}.",
+            file=sys.stderr,
+        )
+    elif actual_store_id != expected_store_id:
+        print(
+            f"Store-ID mismatch: het token wijst naar {actual_store_id}, maar "
+            f"{store_src} verwacht {expected_store_id} voor {vaultenv.vault_name()}. "
+            f"Dit is waarschijnlijk het token van een andere vault — sync afgebroken. "
+            f"Is de store bewust gewisseld, pas dan {STORE_ID_FILE} aan.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    else:
+        print(f"Store-ID: {expected_store_id} (gecontroleerd tegen {store_src})")
 
     blobs = list_inbox(token)
     if not blobs:

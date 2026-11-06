@@ -225,6 +225,24 @@ else
   ok "$gevonden verwijzing(en) gecontroleerd"
 fi
 
+# Een openstaande handoff moet in ELKE vault tot deel B leiden, ook in de twee
+# die één geünificeerde prompt hebben. Stond die check binnen de A1/A2-tak, dan
+# bleef een handoff daar eeuwig liggen en werd er nooit gepubliceerd.
+for vault in ClaudeVault HistVault GroeneVault; do
+  wrapper="$WERKRUIMTE_T/$vault/scripts/daily-book-summary.sh"
+  [ -f "$wrapper" ] || continue
+  if grep -q 'if \[ -f "\$BH" \] && \[ -f "\$PROMPT_B" \]; then' "$wrapper"; then
+    ok "$vault pakt een handoff op vóór de A1/A2-tak"
+  else
+    faal "$vault pakt een openstaande handoff niet op"
+  fi
+  if [ -f "$WERKRUIMTE_T/$vault/scripts/daily-book-prompt-B.md" ]; then
+    ok "$vault heeft een deel B-prompt"
+  else
+    faal "$vault heeft geen daily-book-prompt-B.md, dus deel B kan niet draaien"
+  fi
+done
+
 # De oude naam mag nergens in de toolkit meer staan. Drie plekken mogen hem wél
 # noemen: de docstring van het hernoemde script (die legt de hernoeming uit),
 # dit testbestand (dat de naam als zoekterm bevat) en gecompileerde .pyc's, die

@@ -194,6 +194,61 @@ try:
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
+# --- 6. het handoff-contract tussen deel A en deel B --------------------
+# Deel A (dit script) schrijft de handoff, deel B (een promptrecept dat Claude
+# uitvoert) leest hem. Die twee staan in verschillende bestanden en in
+# verschillende talen, dus niets dwingt ze bij elkaar te blijven — behalve dit.
+print("\n--- handoff-contract ---")
+SLEUTELS = ["date", "epub", "slug", "title", "author", "year", "isbn",
+            "publisher", "nonfictie", "medium", "coverpad", "exportmd",
+            "exportpdf", "querypage", "sourcepage", "tags", "excerpt"]
+
+tmp = tempfile.mkdtemp()
+try:
+    os.makedirs(os.path.join(tmp, "scripts"))
+    velden = {k: f"waarde-{k}" for k in SLEUTELS}
+    pad = runner.schrijf_handoff(tmp, velden)
+    check("handoff heet .daily-handoff.json", os.path.basename(pad),
+          ".daily-handoff.json")
+    with open(pad, encoding="utf-8") as fh:
+        terug = json.load(fh)
+    check("handoff is geldige JSON met alle sleutels",
+          sorted(terug.keys()), sorted(SLEUTELS))
+finally:
+    shutil.rmtree(tmp, ignore_errors=True)
+
+# Het script moet ook echt kunnen stárten. Deze suite importeert losse functies
+# en raakt `main()` nooit aan, waardoor een ontbrekende import er maandenlang in
+# kan zitten — precies wat er gebeurde met `argparse`, dat pas opviel bij een
+# echte aanroep in een vault.
+import subprocess as _sub
+_p = _sub.run([sys.executable, os.path.join(SCRIPTS, "daily-book-fallback.py"),
+               "--help"], capture_output=True, text=True)
+check("daily-book-fallback.py --help start zonder fout", _p.returncode, 0)
+check("en noemt de noodknop", "--publiceer-zelf" in _p.stdout, True)
+
+bron = open(os.path.join(SCRIPTS, "daily-book-fallback.py"),
+            encoding="utf-8").read()
+ontbreekt_in_a = [k for k in SLEUTELS if f'"{k}":' not in bron]
+check("deel A schrijft elke sleutel uit het contract", ontbreekt_in_a, [])
+
+WERKRUIMTE = os.path.dirname(TOOLKIT)
+for vault in ("ClaudeVault", "HistVault", "GroeneVault"):
+    p = os.path.join(WERKRUIMTE, vault, "scripts", "daily-book-prompt-B.md")
+    if not os.path.exists(p):
+        check(f"{vault} heeft een deel B-prompt", False, True)
+        continue
+    tekst = open(p, encoding="utf-8").read()
+    # GroeneVault heeft een oudere B-prompt met een eigen veldenlijst; toets
+    # daar alleen de velden die elke B nodig heeft om te kunnen publiceren.
+    nodig = SLEUTELS if vault != "GroeneVault" else [
+        "title", "author", "year", "isbn", "publisher", "coverpad", "exportmd"]
+    mist = [k for k in nodig if k not in tekst]
+    check(f"{vault}: deel B noemt elke sleutel die het nodig heeft", mist, [])
+    check(f"{vault}: deel B popt de wachtrij", "book-queue.txt" in tekst, True)
+    check(f"{vault}: deel B ruimt de handoff op",
+          ".daily-handoff.json" in tekst, True)
+
 print()
 if fails:
     print(f"=== {len(fails)} TEST(S) GEFAALD ===")

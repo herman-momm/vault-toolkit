@@ -22,9 +22,9 @@ behalve `test_launchd.sh`, dat niets neerzet en alleen de bestanden in
 | `test_github_sync.sh` | auto-commit, secret-rem, rebase-herstel, dry-run en de inbox-stap van `daily-github-sync.sh` | 51 |
 | `test_store_id.sh` | de store-ID-controle in `sync-blob-inbox.py` | 15 |
 | `test_automation_check.sh` | de verouderings- én uitkomstcheck op geplande taken in `vault-status.py` | 29 |
-| `test_launchd.sh` | het schema en de wrappers in `launchd/`, de dekking van `install.sh`, en of de scriptverwijzingen in de boekketen bestaan | 80 |
+| `test_launchd.sh` | het schema en de wrappers in `launchd/`, de dekking van `install.sh`, de scriptverwijzingen in de boekketen, en of elke vault een openstaande handoff oppakt | 86 |
 | `test_tls.sh` | dat geen script certificaatcontrole omzeilt, en dat `vaultenv.tls_context()` echt verifieert | 15 |
-| `test_book_enrichment.py` | omslag, tags, Persoon-objecten en boekkenmerken bij een boekpublicatie | 31 |
+| `test_book_enrichment.py` | omslag, tags, Persoon-objecten, boekkenmerken en het handoff-contract tussen deel A en B | 45 |
 
 `fixture_vault.py` is geen suite maar het bouwsteentje eronder: het zet een
 synthetische vault met een handvol bekende pagina's neer.

@@ -61,7 +61,7 @@ shim werkt ook als je hem van buiten de vault aanroept.
 | `book-cover.py` | Omslag voor élk boekformaat: delegeert voor EPUB, rendert pagina 1 voor PDF |
 | `md2pdf.py` | Export-markdown naar huisstijl-PDF (A4, tabellen, callouts, inline afbeeldingen) |
 | `md2docx.py` | Dezelfde markdown-subset naar huisstijl-Word (.docx), accentkleur `#1F3864` |
-| `daily-book-fallback.py` | De hele dagelijkse boekpijplijn in Python, voor als de Claude CLI aan zijn limiet zit; alleen de samenvatting komt van Gemini |
+| `daily-book-fallback.py` | Deel A van de dagelijkse boekpijplijn als de Claude CLI aan zijn limiet zit: samenvatting (Gemini), PDF en vault-paginas, daarna een handoff zodat Claude in deel B publiceert |
 | `gemini-fallback.py` | Kale Gemini API-caller voor losse vault-taken |
 | `capacities-push.py` | Capacities API: Boek-objecten, pagina's, daily note |
 | `capacities-check.py` | Controleert de Capacities-credentials vóór/na een rotatie: herkomst, of de sleutel werkt, en of hij nergens in de vijf repo's lekt |
@@ -97,7 +97,7 @@ in de plists.
 ## Tests
 
 ```bash
-tests/run-tests.sh        # 260 checks over 7 suites
+tests/run-tests.sh        # 280 checks over 7 suites
 tests/run-tests.sh -v     # met alle checks erbij
 ```
 

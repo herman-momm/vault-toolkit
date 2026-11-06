@@ -32,6 +32,7 @@ Vault-hygiëne (toegevoegd 2026-11-05 na de Doggerland-run):
 import sys
 import os
 import re
+import argparse
 import glob
 import json
 import ssl
@@ -392,18 +393,15 @@ def book_metadata(vault_dir, book_filename, rel_page):
     return uit
 
 
-def extract_cover_url(vault_dir, book_filename, toolkit_pad, mislukt):
-    """Haal de omslag uit het boek en zet hem op een publieke URL.
+def extract_cover_file(vault_dir, book_filename, toolkit_pad, mislukt):
+    """Haal de omslag uit het boek en geef het lokale pad terug.
 
-    Twee stappen, want beide doelen willen iets anders: de Capacities-eigenschap
-    `coverImage` neemt een http(s)-URL, en de WordPress Book Showcase wil er ook
-    een. De mediabibliotheek van WordPress is de eenvoudigste plek om die URL te
-    krijgen, dus de afbeelding gaat daar één keer heen en wordt twee keer
-    gebruikt. Lukt het niet, dan is dat geen reden de run te stoppen — maar het
-    wordt wel gemeld in plaats van stil overgeslagen.
+    Deel B (Claude) uploadt zelf en wil daarom een pad, niet een URL; alleen de
+    noodroute `--publiceer-zelf` heeft daarna ook een publieke URL nodig. Lukt
+    het niet, dan is dat geen reden de run te stoppen — maar het wordt wel
+    gemeld in plaats van stil overgeslagen.
     """
     cover_script = toolkit_pad("book-cover.py")
-    upload_script = toolkit_pad("wp-upload-cover.py")
     raw_pad = os.path.join(vault_dir, "raw", book_filename)
 
     if not os.path.exists(cover_script):
@@ -420,7 +418,19 @@ def extract_cover_url(vault_dir, book_filename, toolkit_pad, mislukt):
         return ""
     lokaal = proc.stdout.strip().splitlines()[-1]
     print(f"  omslag: {lokaal}")
+    return lokaal
 
+
+def upload_cover(lokaal, toolkit_pad, mislukt):
+    """Zet een lokale omslag op een publieke URL (alleen voor --publiceer-zelf).
+
+    De Capacities-eigenschap `coverImage` neemt een http(s)-URL, en de Book
+    Showcase wil er ook een; de WordPress-mediabibliotheek is de eenvoudigste
+    plek om er één te krijgen.
+    """
+    upload_script = toolkit_pad("wp-upload-cover.py")
+    if not lokaal:
+        return ""
     if not os.path.exists(upload_script):
         mislukt.append("Omslag — wp-upload-cover.py niet gevonden")
         return ""
@@ -497,9 +507,47 @@ def call_gemini(prompt, api_key, model="gemini-3.8-flash"):
             raise RuntimeError("Geen respons ontvangen van Gemini API")
 
 
+HANDOFF_NAAM = ".daily-handoff.json"
+
+
+def schrijf_handoff(vault_dir, velden):
+    """Leg deel A vast voor deel B, dat door Claude wordt gedraaid.
+
+    Dit is het contract tussen de twee helften van de dagelijkse taak: A leest
+    het boek en schrijft de vault-pagina's, B publiceert naar Capacities en
+    WordPress. De sleutels komen overeen met wat `daily-book-prompt-B.md`
+    verwacht; verander ze niet los van die prompt.
+    """
+    pad = os.path.join(vault_dir, "scripts", HANDOFF_NAAM)
+    with open(pad, "w", encoding="utf-8") as fh:
+        json.dump(velden, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    return pad
+
+
 def main():
+    parser = argparse.ArgumentParser(
+        description="Dagelijkse boekpijplijn zonder Claude (deel A).")
+    parser.add_argument(
+        "--publiceer-zelf", action="store_true",
+        help="publiceer direct naar WordPress en Capacities in plaats van een "
+             "handoff te schrijven. Noodknop: publiceren hoort via Claude te "
+             "gaan (deel B), want die route zet ook auteursfoto's, bio's en de "
+             "terugkoppeling op het Persoon-object.")
+    args = parser.parse_args()
+
     vault_dir = os.getcwd()
     load_env(vault_dir)
+
+    # Ligt er al een handoff, dan wacht er publicatie op Claude en is deel A
+    # voor dit boek al gedaan. Opnieuw beginnen zou de samenvatting overdoen en
+    # de handoff overschrijven.
+    handoff_pad = os.path.join(vault_dir, "scripts", HANDOFF_NAAM)
+    if os.path.exists(handoff_pad) and not args.publiceer_zelf:
+        print(f"Er ligt al een handoff ({HANDOFF_NAAM}): deel A is gedaan en "
+              "publicatie wacht op een run waarin Claude beschikbaar is. "
+              "Niets te doen.")
+        sys.exit(0)
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -676,56 +724,67 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
     # Deze gingen tot 6 nov 2026 verloren: de scripts konden ze aan, maar de
     # runner gaf ze niet mee. Gevolg: Boek-objecten zonder omslag en zonder
     # tags, en een Showcase-entry zonder beeld, ISBN of uitgever.
-    omslag_url = extract_cover_url(vault_dir, book_filename, toolkit_pad, mislukt)
+    omslag_pad = extract_cover_file(vault_dir, book_filename, toolkit_pad, mislukt)
     boek_tags = source_page_tags(vault_dir, existing_src)
     kenmerken = book_metadata(vault_dir, book_filename, existing_src)
+    # Uploaden hoort bij publiceren; in de normale route doet deel B dat zelf.
+    omslag_url = upload_cover(omslag_pad, toolkit_pad, mislukt) \
+        if args.publiceer_zelf else ""
 
     print("PDF bouwen via md2pdf.py...")
     voer_stap_uit("PDF (md2pdf.py)", toolkit_pad("md2pdf.py"),
                   [sys.executable, toolkit_pad("md2pdf.py"), export_file], mislukt)
 
-    print("WordPress concept publiceren via wp-publish-draft.py...")
-    wp_draft_script = toolkit_pad("wp-publish-draft.py")
-    voer_stap_uit("WordPress-concept (wp-publish-draft.py)", wp_draft_script,
-                  [sys.executable, wp_draft_script, export_file,
-                   "--title", f"{data['title']} ({data['author']})"], mislukt)
+    # Publiceren hoort via Claude te gaan (deel B): die route legt ook
+    # Persoon-objecten aan met foto en bio, koppelt het boek daarop terug en
+    # verifieert dat de omslag écht gekoppeld is. Dit blok is de noodknop voor
+    # als dat te lang duurt.
+    if args.publiceer_zelf:
+        print("WordPress concept publiceren via wp-publish-draft.py...")
+        wp_draft_script = toolkit_pad("wp-publish-draft.py")
+        voer_stap_uit("WordPress-concept (wp-publish-draft.py)", wp_draft_script,
+                      [sys.executable, wp_draft_script, export_file,
+                       "--title", f"{data['title']} ({data['author']})"], mislukt)
 
-    print("WordPress Book Showcase publiceren via wp-book-showcase.py...")
-    wp_showcase_script = toolkit_pad("wp-book-showcase.py")
-    cmd = [sys.executable, wp_showcase_script, export_file,
-           "--title", data['title'], "--author", data['author']]
-    if data.get("year") or kenmerken["year"]:
-        cmd.extend(["--year", str(data.get("year") or kenmerken["year"])])
-    if omslag_url:
-        cmd.extend(["--cover", omslag_url])
-    if kenmerken["isbn"]:
-        cmd.extend(["--isbn", kenmerken["isbn"]])
-    if kenmerken["publisher"]:
-        cmd.extend(["--publisher", kenmerken["publisher"]])
-    voer_stap_uit("WordPress Book Showcase (wp-book-showcase.py)",
-                  wp_showcase_script, cmd, mislukt)
+        print("WordPress Book Showcase publiceren via wp-book-showcase.py...")
+        wp_showcase_script = toolkit_pad("wp-book-showcase.py")
+        cmd = [sys.executable, wp_showcase_script, export_file,
+               "--title", data['title'], "--author", data['author']]
+        if data.get("year") or kenmerken["year"]:
+            cmd.extend(["--year", str(data.get("year") or kenmerken["year"])])
+        if omslag_url:
+            cmd.extend(["--cover", omslag_url])
+        if kenmerken["isbn"]:
+            cmd.extend(["--isbn", kenmerken["isbn"]])
+        if kenmerken["publisher"]:
+            cmd.extend(["--publisher", kenmerken["publisher"]])
+        voer_stap_uit("WordPress Book Showcase (wp-book-showcase.py)",
+                      wp_showcase_script, cmd, mislukt)
 
-    print("Capacities publiceren via capacities-push.py...")
-    cap_script = toolkit_pad("capacities-push.py")
-    daily_msg = (f"📚 **{data['title']}** — {data['author']} ({data.get('year', '')})\n"
-                 "Uitgebreide boeksamenvatting en analyse verwerkt in de vault.")
-    voer_stap_uit("Capacities daily note (capacities-push.py)", cap_script,
-                  [sys.executable, cap_script, "--daily-note", daily_msg], mislukt)
-    cap_cmd = [
-        sys.executable, cap_script,
-        "--book-md", export_file,
-        "--title", data['title'],
-        "--author", data['author'],
-        "--desc", f"Boek van {data['author']}"
-    ]
-    if data.get("year"):
-        cap_cmd.extend(["--year", str(data['year'])])
-    if omslag_url:
-        cap_cmd.extend(["--cover", omslag_url])
-    if boek_tags:
-        cap_cmd.extend(["--tags", ", ".join(boek_tags)])
-    voer_stap_uit("Capacities Boek-object (capacities-push.py)", cap_script,
-                  cap_cmd, mislukt)
+        print("Capacities publiceren via capacities-push.py...")
+        cap_script = toolkit_pad("capacities-push.py")
+        daily_msg = (f"📚 **{data['title']}** — {data['author']} ({data.get('year', '')})\n"
+                     "Uitgebreide boeksamenvatting en analyse verwerkt in de vault.")
+        voer_stap_uit("Capacities daily note (capacities-push.py)", cap_script,
+                      [sys.executable, cap_script, "--daily-note", daily_msg], mislukt)
+        cap_cmd = [
+            sys.executable, cap_script,
+            "--book-md", export_file,
+            "--title", data['title'],
+            "--author", data['author'],
+            "--desc", f"Boek van {data['author']}"
+        ]
+        if data.get("year"):
+            cap_cmd.extend(["--year", str(data['year'])])
+        if omslag_url:
+            cap_cmd.extend(["--cover", omslag_url])
+        if boek_tags:
+            cap_cmd.extend(["--tags", ", ".join(boek_tags)])
+        voer_stap_uit("Capacities Boek-object (capacities-push.py)", cap_script,
+                      cap_cmd, mislukt)
+    else:
+        print("Publicatie wordt overgedragen aan deel B (Claude) — "
+              "hier wordt niets gepubliceerd.")
 
     print("index.md bijwerken (catalogusregel + statistiek)...")
     desc = (data.get("index_description") or "").strip().rstrip(".")
@@ -760,11 +819,15 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
         # dat PDF, WordPress en Capacities klaar waren.
         if mislukt:
             log_entry += (f"LET OP — {len(mislukt)} uitvoerstap(pen) MISLUKT: "
-                          f"{'; '.join(mislukt)}. Die publicatie is dus niet gedaan "
+                          f"{'; '.join(mislukt)}. Die stap is dus niet gedaan "
                           "en moet met de hand worden ingehaald. ")
-        else:
+        elif args.publiceer_zelf:
             log_entry += ("PDF gebouwd, WordPress concept & Showcase gepubliceerd, "
                           "Capacities Boek-object + Daily Note bijgewerkt. ")
+        else:
+            log_entry += ("PDF gebouwd. Publicatie naar Capacities en WordPress is "
+                          "overgedragen aan deel B (via Claude) met een handoff; de "
+                          "wachtrij is daarom nog niet gepopt. ")
         log_entry += "index.md bijgewerkt (catalogusregel onder 'Automatisch toegevoegd' + statistiek)."
         if ontlinkt:
             log_entry += (f" Sanitizer ontlinkte {len(ontlinkt)} niet-bestaande linkdoelen naar vette tekst "
@@ -775,6 +838,46 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
         log_entry += lint_warn + "\n"
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(log_entry)
+
+    if not args.publiceer_zelf:
+        # Deel A is klaar. De wachtrij blijft staan: deel B popt hem pas na een
+        # geslaagde publicatie, zodat een boek niet verdwijnt terwijl het nog
+        # nergens gepubliceerd is.
+        velden = {
+            "date": today,
+            "epub": book_filename,
+            "slug": slug,
+            "title": data["title"],
+            "author": data["author"],
+            "year": str(data.get("year") or kenmerken["year"] or ""),
+            "isbn": kenmerken["isbn"],
+            "publisher": kenmerken["publisher"],
+            "nonfictie": data.get("nonfictie") or "Non-Fictie",
+            "medium": "Ebook" if book_filename.lower().endswith(".epub") else "Boek",
+            "coverpad": os.path.relpath(omslag_pad, vault_dir) if omslag_pad else "",
+            "exportmd": os.path.relpath(export_file, vault_dir),
+            "exportpdf": os.path.relpath(os.path.splitext(export_file)[0] + ".pdf", vault_dir),
+            # Volledige, ondubbelzinnige paden vanaf de vaultroot — zo hoeft
+            # deel B niet te raden of er nog `wiki/` en `.md` bij moeten.
+            "querypage": f"wiki/{query_rel}.md",
+            "sourcepage": f"wiki/{source_rel}.md",
+            "tags": boek_tags,
+            "excerpt": (data.get("index_description") or "").strip(),
+        }
+        pad = schrijf_handoff(vault_dir, velden)
+        print(f"Handoff geschreven: {os.path.relpath(pad, vault_dir)}")
+        print("Deel B publiceert dit bij de eerstvolgende run waarin Claude "
+              "beschikbaar is; de orchestrator geeft die vault dan voorrang.")
+        if mislukt:
+            print(f"\n!! {len(mislukt)} stap(pen) MISLUKT:", file=sys.stderr)
+            for m in mislukt:
+                print(f"!!   {m}", file=sys.stderr)
+            print(f"=== DEELS MISLUKT: deel A van '{data['title']}' is klaar, "
+                  f"maar {len(mislukt)} stap(pen) faalden. ===")
+            sys.exit(3)
+        print(f"=== DEEL A GESLAAGD: '{data['title']}' staat in de vault, "
+              "publicatie volgt in deel B. ===")
+        sys.exit(0)
 
     print("Wachtrij bijwerken (pop)...")
     remaining_lines = lines[1:]

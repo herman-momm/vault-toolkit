@@ -54,13 +54,12 @@ def main():
     headers = {"Content-Type": "application/json"}
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
 
-    # SSL context fallback voor macOS Python certificate issues
-    try:
-        ssl_context = ssl.create_default_context()
-        response_obj = urllib.request.urlopen(req, timeout=120, context=ssl_context)
-    except Exception:
-        ssl_context = ssl._create_unverified_context()
-        response_obj = urllib.request.urlopen(req, timeout=120, context=ssl_context)
+    # De CA-bundel van deze Mac wordt door vaultenv opgezocht (certifi of de
+    # systeembundel), in plaats van de certificaatcontrole uit te zetten zodra
+    # verificatie één keer faalt — wat hier eerder gebeurde bij élke
+    # uitzondering, inclusief een time-out.
+    response_obj = urllib.request.urlopen(req, timeout=120,
+                                          context=vaultenv.tls_context())
 
     try:
         with response_obj as resp:

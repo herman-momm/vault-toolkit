@@ -23,6 +23,7 @@ behalve `test_launchd.sh`, dat niets neerzet en alleen de bestanden in
 | `test_store_id.sh` | de store-ID-controle in `sync-blob-inbox.py` | 15 |
 | `test_automation_check.sh` | de verouderingscheck op geplande taken in `vault-status.py` | 16 |
 | `test_launchd.sh` | het schema en de wrappers in `launchd/`, en de dekking van `install.sh` | 75 |
+| `test_tls.sh` | dat geen script certificaatcontrole omzeilt, en dat `vaultenv.tls_context()` echt verifieert | 15 |
 
 `fixture_vault.py` is geen suite maar het bouwsteentje eronder: het zet een
 synthetische vault met een handvol bekende pagina's neer.
@@ -47,6 +48,15 @@ een stille fout duur is:
   gemiste slag in als de Mac uit stond, maar een run die *faalt* meldde niets.
   Op de dag dat de check werd toegevoegd bleek de websitecontrole al 37 uur stil
   te staan zonder dat iets dat liet zien.
+- De **certificaatcontrole** is de enige suite die een *verbod* toetst in plaats
+  van gedrag. Tot 6 nov 2026 gebruikten vier scripts
+  `ssl._create_unverified_context()`, twee ervan als stille terugval bij élke
+  uitzondering, waardoor bij iedere API-aanroep een bearer-token de deur uit
+  ging zonder dat het certificaat werd gecontroleerd. Dat is precies het soort
+  regressie dat niemand opmerkt, want alles blijft werken — alleen onveilig.
+  De scan tokeniseert de bestanden in plaats van te grepen, omdat `vaultenv.py`
+  en `capacities-check.py` die namen in hun docstring noemen om uit te leggen
+  waarom ze er niet meer staan.
 - Het **launchd-schema** is de laag waar al die taken aan hangen. De reden dat de
   websitecontrole 37 uur stil stond, was een logpad in iCloud: launchd kan het
   proces dan niet starten en faalt met `EX_CONFIG 78` — geen regel in het log,

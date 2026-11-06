@@ -45,6 +45,7 @@ draai "github-sync (daily-github-sync)"   bash    "$HIER/test_github_sync.sh"
 draai "store-ID (sync-blob-inbox)"        bash    "$HIER/test_store_id.sh"
 draai "automatisering (vault-status)"      bash    "$HIER/test_automation_check.sh"
 draai "launchd (plists + wrappers)"        bash    "$HIER/test_launchd.sh"
+draai "TLS (certificaatcontrole)"          bash    "$HIER/test_tls.sh"
 
 echo
 if [ "${#falend[@]}" -gt 0 ]; then

@@ -13,7 +13,7 @@ BASE_URL = "https://api.capacities.io"
 PERSON_STRUCTURE_ID = "73abbe4c-adf1-4443-8cb2-20c34b5c029c"
 PICTURE_PROP_ID = "69a8ad24-acf6-44fd-acba-7ab2d3a09b62"
 
-ctx = ssl._create_unverified_context()
+ctx = vaultenv.tls_context()
 
 
 def load_env():

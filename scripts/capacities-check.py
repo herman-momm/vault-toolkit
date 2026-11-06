@@ -67,30 +67,14 @@ def kop(tekst):
 
 
 def tls_context():
-    """Een SSL-context MET certificaatcontrole, plus waar de bundel vandaan komt.
+    """Context mét certificaatcontrole, plus waar de bundel vandaan komt.
 
-    De python.org-build op deze Mac wijst `openssl_cafile` naar een bestand dat
-    niet bestaat ("Install Certificates.command" is nooit gedraaid), waardoor
-    elke https-aanroep faalt met CERTIFICATE_VERIFY_FAILED. Dát is de reden dat
-    de andere scripts hier `ssl._create_unverified_context()` gebruiken. Een
-    bundel is er wél — via certifi of de systeembundel van macOS — dus die
-    zoeken we op in plaats van de controle uit te zetten.
+    De resolutie zelf staat in `vaultenv`, zodat alle scripts dezelfde bundel
+    gebruiken; hier wordt alleen de herkomst meegegeven zodat de controle kan
+    melden waarop hij vertrouwt.
     """
-    try:
-        import certifi
-        pad = certifi.where()
-        if os.path.isfile(pad):
-            return ssl.create_default_context(cafile=pad), f"certifi ({pad})"
-    except ImportError:
-        pass
-
-    for pad in ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem"):
-        if os.path.isfile(pad):
-            return ssl.create_default_context(cafile=pad), f"systeembundel ({pad})"
-
-    ctx = ssl.create_default_context()
-    standaard = ssl.get_default_verify_paths().cafile
-    return ctx, f"standaard ({standaard or 'geen bundel gevonden'})"
+    _, bron = vaultenv.ca_bundle()
+    return vaultenv.tls_context(), bron
 
 
 def controleer_herkomst():

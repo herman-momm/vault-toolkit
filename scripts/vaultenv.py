@@ -23,8 +23,12 @@ Zoekorde voor een configbestand `<naam>.env`:
   4. ~/.config/histvault/<naam>   (historisch gedeelde locatie — waar alles nu staat)
 Losse environment variables gaan vóór een bestand als ze gezet zijn, zodat een
 cloud-sessie zonder credentialbestand gewoon werkt.
+
+Daarnaast staat hier `tls_context()`: één plek die een SSL-context mét
+certificaatcontrole oplevert. Zie de docstring daar voor het waarom.
 """
 import os
+import ssl
 import sys
 
 # Suffix per vault voor env-varianten die naast elkaar moeten kunnen bestaan
@@ -35,6 +39,60 @@ VAULT_ENV_SUFFIX = {
     "histvault": "HIST",
     "groenevault": "GREEN",
 }
+
+
+def ca_bundle():
+    """Pad naar een bruikbare CA-bundel, plus waar die vandaan komt.
+
+    Retourneert (pad_of_None, omschrijving). None betekent: de standaardpaden
+    van deze Python volstaan.
+    """
+    override = os.environ.get("SSL_CERT_FILE")
+    if override and os.path.isfile(override):
+        return override, f"$SSL_CERT_FILE ({override})"
+
+    if ssl.get_default_verify_paths().cafile:
+        return None, "standaardpaden van deze Python"
+
+    try:
+        import certifi
+        pad = certifi.where()
+        if os.path.isfile(pad):
+            return pad, f"certifi ({pad})"
+    except ImportError:
+        pass
+
+    for pad in ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem",
+                "/usr/local/etc/openssl/cert.pem",
+                "/opt/homebrew/etc/openssl@3/cert.pem"):
+        if os.path.isfile(pad):
+            return pad, f"systeembundel ({pad})"
+
+    return None, "geen bundel gevonden"
+
+
+def tls_context():
+    """Een SSL-context MET certificaatcontrole.
+
+    Waarom dit bestaat: de toolkit-scripts gebruikten allemaal
+    `ssl._create_unverified_context()`, of probeerden verificatie en vielen bij
+    élke uitzondering stil terug op een ongeverifieerde context. Daardoor ging
+    bij elke API-aanroep een bearer-token de deur uit zonder dat het certificaat
+    van de tegenpartij werd gecontroleerd.
+
+    De oorzaak was niet de API maar deze Mac: de python.org-build wijst
+    `openssl_cafile` naar een bestand dat niet bestaat, omdat
+    "Install Certificates.command" nooit is gedraaid. Elke https-aanroep faalde
+    dus met CERTIFICATE_VERIFY_FAILED, en uitzetten leek de uitweg. Een bundel is
+    er wél — via `certifi` of de systeembundel van macOS — dus die zoeken we op.
+
+    Faalt een aanroep hierna alsnog op het certificaat, dan is dat een echt
+    signaal: niet wegklikken met een ongeverifieerde context, maar uitzoeken.
+    Zet desnoods `SSL_CERT_FILE` naar een bundel die je vertrouwt.
+    """
+    pad, _ = ca_bundle()
+    return ssl.create_default_context(cafile=pad) if pad \
+        else ssl.create_default_context()
 
 
 def vault_root(explicit=None, marker="wiki"):

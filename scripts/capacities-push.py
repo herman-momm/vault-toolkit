@@ -31,7 +31,8 @@ def api_request(endpoint, data=None, method="GET", token=None):
     }
     payload = json.dumps(data).encode("utf-8") if data else None
     req = urllib.request.Request(url, data=payload, headers=headers, method=method)
-    ctx = ssl._create_unverified_context()
+    # Mét certificaatcontrole: hier gaat een bearer-token de deur uit.
+    ctx = vaultenv.tls_context()
     with urllib.request.urlopen(req, context=ctx) as resp:
         res_body = resp.read().decode("utf-8")
         return json.loads(res_body) if res_body else {}
@@ -48,7 +49,7 @@ def fetch_wikipedia_author(author_name: str):
         names = [clean_name]
 
     results = []
-    ctx = ssl._create_unverified_context()
+    ctx = vaultenv.tls_context()
     for name in names:
         if not name or len(name) < 3:
             continue

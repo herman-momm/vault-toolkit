@@ -330,12 +330,13 @@ def call_gemini(prompt, api_key, model="gemini-3.8-flash"):
     headers = {"Content-Type": "application/json"}
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
 
-    try:
-        ssl_context = ssl.create_default_context()
-        response_obj = urllib.request.urlopen(req, timeout=180, context=ssl_context)
-    except Exception:
-        ssl_context = ssl._create_unverified_context()
-        response_obj = urllib.request.urlopen(req, timeout=180, context=ssl_context)
+    # Eén context, mét certificaatcontrole. Hier stond een try/except die bij
+    # élke uitzondering — ook een time-out of DNS-fout — terugviel op een
+    # ongeverifieerde context; de API-sleutel ging dan alsnog de deur uit, maar
+    # dan zonder dat het certificaat was gecontroleerd. Faalt dit op het
+    # certificaat, dan is dat een signaal en geen reden om door te gaan.
+    response_obj = urllib.request.urlopen(req, timeout=180,
+                                          context=vaultenv.tls_context())
 
     with response_obj as resp:
         res_data = json.loads(resp.read().decode("utf-8"))

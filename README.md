@@ -32,6 +32,15 @@ dagelijkse taak de toolkit kloont:
 git clone --depth 1 https://github.com/herman-momm/vault-toolkit /tmp/vault-toolkit
 ```
 
+**TLS.** Alle https-aanroepen lopen via `vaultenv.tls_context()`: één plek die
+een context mét certificaatcontrole oplevert en daarvoor een CA-bundel opzoekt
+(`$SSL_CERT_FILE` → de standaardpaden → `certifi` → de systeembundel van macOS).
+Dat is nodig omdat de python.org-build op deze Mac naar een CA-bundel wijst die
+niet bestaat; de scripts zetten de controle daarom eerder uit, waardoor bij elke
+aanroep een bearer-token zonder certificaatcontrole de deur uit ging. Zet
+desnoods `SSL_CERT_FILE`, maar schakel de controle niet uit — `tests/test_tls.sh`
+weigert code die dat doet.
+
 **Vaultresolutie.** De scripts werken relatief aan de vault die ze verwerken,
 bepaald via `--vault` (waar ondersteund), anders `$VAULT_ROOT` — die de shim
 zelf zet op zijn eigen vault — anders de werkmap, anders de map boven het
@@ -87,15 +96,16 @@ in de plists.
 ## Tests
 
 ```bash
-tests/run-tests.sh        # 189 checks over 5 suites
+tests/run-tests.sh        # 204 checks over 6 suites
 tests/run-tests.sh -v     # met alle checks erbij
 ```
 
 Regressietests voor de scripts die ongevraagd en zonder toezicht draaien: de
 link-sanitizer en duplicaatwacht van `gemini-book-runner.py`, de auto-commit en
 secret-rem van `daily-github-sync.sh`, de store-ID-controle van
-`sync-blob-inbox.py`, de verouderingscheck op de geplande taken, en het schema en
-de wrappers in `launchd/`. Op die laatste na werkt alles met synthetische fixtures in `/tmp` — geen
+`sync-blob-inbox.py`, de verouderingscheck op de geplande taken, het schema en
+de wrappers in `launchd/`, en het verbod op code die certificaatcontrole omzeilt.
+Op die laatste twee na werkt alles met synthetische fixtures in `/tmp` — geen
 credentials, geen echte vault, en op één onschuldige mislukte API-aanroep na
 geen netwerk. Zie `tests/README.md` voor de details en voor het toevoegen van
 een suite.

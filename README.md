@@ -59,7 +59,7 @@ shim werkt ook als je hem van buiten de vault aanroept.
 | `wp-book-showcase.py` | Publiceert een boek naar de Book Showcase-plugin |
 | `wp-upload-cover.py` | Upload een cover naar de WP-mediabibliotheek, print de publieke URL |
 | `daily-book-orchestrator.sh` | Kiest één vault per dag (round-robin) en start diens boekwrapper — launchd 06:00 |
-| `daily-github-sync.sh` | Commit ongecommit werk en synchroniseert alle repo's met GitHub — launchd 03:00 |
+| `daily-github-sync.sh` | Haalt de upload-inbox van elke vault leeg (stap 0), commit ongecommit werk en synchroniseert alle repo's met GitHub — launchd 03:00 |
 
 De twee `.sh`-scripts worden door launchd aangeroepen via een wrapper van drie
 regels in `~/.config/histvault/`, omdat launchd slecht omgaat met spaties in het
@@ -86,7 +86,7 @@ in de plists.
 ## Tests
 
 ```bash
-tests/run-tests.sh        # 170 checks over 5 suites
+tests/run-tests.sh        # 189 checks over 5 suites
 tests/run-tests.sh -v     # met alle checks erbij
 ```
 

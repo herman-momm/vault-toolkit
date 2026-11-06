@@ -19,7 +19,7 @@ behalve `test_launchd.sh`, dat niets neerzet en alleen de bestanden in
 | Suite | Bewaakt | Checks |
 |---|---|---|
 | `test_link_hygiene.py` | de link-sanitizer, duplicaatwacht en index-update in `gemini-book-runner.py` | 32 |
-| `test_github_sync.sh` | auto-commit, secret-rem, rebase-herstel en dry-run van `daily-github-sync.sh` | 32 |
+| `test_github_sync.sh` | auto-commit, secret-rem, rebase-herstel, dry-run en de inbox-stap van `daily-github-sync.sh` | 51 |
 | `test_store_id.sh` | de store-ID-controle in `sync-blob-inbox.py` | 15 |
 | `test_automation_check.sh` | de verouderingscheck op geplande taken in `vault-status.py` | 16 |
 | `test_launchd.sh` | het schema en de wrappers in `launchd/`, en de dekking van `install.sh` | 75 |

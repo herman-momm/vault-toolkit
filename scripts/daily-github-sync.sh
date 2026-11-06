@@ -6,6 +6,17 @@
 # haalt launchd de slag in zodra hij wakker is — de tijd in het log is dus de
 # echte starttijd.
 #
+# Stap 0, vóór de git-ronde: de /upload-INBOX van elke vault leeghalen
+# (`sync-blob-inbox.py`). Zonder deze stap bleef een geüpload bestand in de
+# Vercel-blob staan tot iemand een interactieve sessie opende — onzichtbaar voor
+# elk dashboard, want `vault-status.py` kijkt naar `raw/` en niet naar de blob.
+# Nu landt het bestand in `raw/`, wordt het in dezelfde run gecommit, en staat de
+# ingest-achterstand de volgende ochtend rood op `wiki/status.md`. Het ophalen
+# zelf is geen LLM-werk (een HTTP-call), dus dit kost geen sessiegebruik — de
+# reden dat de uurlijkse taak op 3 nov 2026 verdween gold de agent, niet het
+# transport. Een mislukte inbox-sync houdt de git-sync nooit tegen; die is de
+# kritieke taak.
+#
 # Werking per repo:
 #   1. COMMIT  — ongecommit werk wordt vastgelegd (git add -A + commit). Zonder
 #      deze stap pushte dit script alleen wat iemand met de hand had gecommit,
@@ -26,10 +37,13 @@
 # API-token in platte tekst, die geen enkele naamregel zou hebben tegengehouden.
 #
 # Overrides (voor een test of een eenmalige run):
-#   VAULT_WORKSPACE=<pad>     andere werkruimte
-#   VAULT_SYNC_REPOS="a b c"  andere repolijst
-#   VAULT_SYNC_LOG=<pad>      ander logbestand
-#   VAULT_SYNC_DRY_RUN=1      niets committen/pushen, alleen loggen
+#   VAULT_WORKSPACE=<pad>            andere werkruimte
+#   VAULT_SYNC_REPOS="a b c"         andere repolijst
+#   VAULT_SYNC_LOG=<pad>             ander logbestand
+#   VAULT_SYNC_DRY_RUN=1             niets committen/pushen, alleen loggen
+#   VAULT_SYNC_INBOX_VAULTS="a b"    andere vaults voor de inbox-stap
+#   VAULT_SYNC_SKIP_INBOX=1          stap 0 overslaan
+#   VAULT_SYNC_PYTHON=<pad>          andere python voor de inbox-stap
 
 WORKSPACE="${VAULT_WORKSPACE:-/Users/herman/Library/Mobile Documents/com~apple~CloudDocs/LLM-Workspace}"
 LOG="${VAULT_SYNC_LOG:-$HOME/.config/histvault/daily-github-sync.log}"
@@ -48,6 +62,21 @@ else
     "dagzoom-vaults-hub"
   )
 fi
+
+# Vaults met een /upload-inbox. vault-toolkit en dagzoom-vaults-hub hebben geen
+# raw/ en geen blob-store, dus die doen aan stap 0 niet mee.
+if [ -n "$VAULT_SYNC_INBOX_VAULTS" ]; then
+  # shellcheck disable=SC2206
+  INBOX_VAULTS=($VAULT_SYNC_INBOX_VAULTS)
+else
+  INBOX_VAULTS=(
+    "ClaudeVault"
+    "HistVault"
+    "GroeneVault"
+  )
+fi
+SKIP_INBOX="${VAULT_SYNC_SKIP_INBOX:-0}"
+PYTHON="${VAULT_SYNC_PYTHON:-python3}"
 
 # gh credential helper en git in PATH (launchd start met een minimale omgeving)
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin:$PATH"
@@ -168,6 +197,47 @@ commit_worktree() {
   return 2
 }
 
+# Stap 0: haal de /upload-inbox van elke vault leeg naar raw/.
+#
+# Dit draait vóór de git-ronde, zodat wat hier binnenkomt in dezelfde run door
+# commit_worktree() wordt vastgelegd. De uitvoer van het script gaat regel voor
+# regel het log in: dat is de enige plek waar later te zien is wélk bestand is
+# opgehaald, en of het token uit de verwachte bron kwam.
+#
+# Een mislukking (geen token, store-ID-mismatch, API-fout) wordt luid gemeld en
+# telt mee in de exitcode, maar breekt niets af: de git-sync is de kritieke taak
+# en moet ook doorgaan als de blob onbereikbaar is.
+sync_inboxes() {
+  local vault dir script uit rc regel
+  for vault in "${INBOX_VAULTS[@]}"; do
+    dir="$WORKSPACE/$vault"
+    script="$dir/scripts/sync-blob-inbox.py"
+    if [ ! -f "$script" ]; then
+      log "[$vault] inbox: sla over — $script niet gevonden."
+      continue
+    fi
+
+    # VAULT_ROOT expliciet: het script leidt zijn doelmap af uit de werkmap of
+    # uit die variabele, en we willen niet afhangen van wat de shim zet.
+    if [ "$DRY_RUN" = "1" ]; then
+      uit=$(cd "$dir" && VAULT_ROOT="$dir" "$PYTHON" "$script" --dry-run 2>&1)
+      rc=$?
+    else
+      uit=$(cd "$dir" && VAULT_ROOT="$dir" "$PYTHON" "$script" 2>&1)
+      rc=$?
+    fi
+
+    while IFS= read -r regel; do
+      [ -n "$regel" ] && log "[$vault] inbox: $regel"
+    done <<< "$uit"
+
+    if [ "$rc" -ne 0 ]; then
+      log "[$vault] !! inbox-sync MISLUKT (exitcode $rc) — er is niets opgehaald."
+      inbox_fail=$((inbox_fail + 1))
+    fi
+  done
+}
+
 {
   echo ""
   echo "===================================================================="
@@ -178,6 +248,14 @@ log "START dagelijkse GitHub-sync (launchd 03:00)"
 success_count=0
 fail_count=0
 commit_count=0
+inbox_fail=0
+
+if [ "$SKIP_INBOX" = "1" ]; then
+  log "Stap 0 (upload-inbox) overgeslagen: VAULT_SYNC_SKIP_INBOX=1."
+else
+  log "Stap 0: upload-inbox van ${#INBOX_VAULTS[@]} vault(s) ophalen naar raw/..."
+  sync_inboxes
+fi
 
 for repo in "${REPOS[@]}"; do
   dir="$WORKSPACE/$repo"
@@ -245,8 +323,8 @@ for repo in "${REPOS[@]}"; do
   fi
 done
 
-log "EINDE sync: $success_count geslaagd, $fail_count mislukt, $commit_count repo(s) met een nieuwe auto-commit."
+log "EINDE sync: $success_count geslaagd, $fail_count mislukt, $commit_count repo(s) met een nieuwe auto-commit, $inbox_fail inbox-sync(s) mislukt."
 echo "====================================================================" >> "$LOG"
 rotate_log
 
-exit $fail_count
+exit $((fail_count + inbox_fail))

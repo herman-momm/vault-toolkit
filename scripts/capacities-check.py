@@ -130,8 +130,13 @@ def controleer_api(token, space):
         faal("geen sleutel om te testen")
         return
 
+    # GET /space is het read-endpoint van de HUIDIGE API; de token is aan één
+    # space gebonden, dus er hoeft geen id mee. Dit script probeerde eerst
+    # /spaces — een endpoint van de Beta-API, die op 1 sep 2026 is uitgezet.
+    # Dat gaf een 401 met "requires a legacy Public API token", en daaruit heb ik
+    # ten onrechte geconcludeerd dat de sleutel zelf dood was.
     req = urllib.request.Request(
-        f"{BASE_URL}/spaces",
+        f"{BASE_URL}/space",
         headers={"Authorization": f"Bearer {token}",
                  "User-Agent": "vault-toolkit/1.0"},
         method="GET",
@@ -155,14 +160,17 @@ def controleer_api(token, space):
         faal(f"kon api.capacities.io niet bereiken: {e}")
         return
 
-    spaces = data.get("spaces", data if isinstance(data, list) else [])
-    ids = [s.get("id") for s in spaces if isinstance(s, dict)]
-    ok(f"sleutel geaccepteerd — {len(ids)} space(s) zichtbaar")
-    if space and ids and space not in ids:
-        faal(f"de geconfigureerde space {space} zit niet in de lijst — "
-             "hoort deze sleutel bij een ander account?")
-    elif space and space in ids:
-        ok(f"de geconfigureerde space {space} is bereikbaar met deze sleutel")
+    gevonden = data.get("id")
+    titel = data.get("title", "?")
+    ok(f"sleutel geaccepteerd — space \"{titel}\"")
+    if not gevonden:
+        faal("het antwoord bevat geen space-id, dus niet te vergelijken")
+    elif space and gevonden != space:
+        faal(f"de sleutel hoort bij space {gevonden}, maar CAPACITIES_SPACE_ID "
+             f"zegt {space} — de token is aan één space gebonden, dus dit is "
+             "waarschijnlijk een sleutel van een andere space.")
+    elif space:
+        ok(f"de space komt overeen met CAPACITIES_SPACE_ID ({space})")
 
 
 def scan_repos(env_paden):

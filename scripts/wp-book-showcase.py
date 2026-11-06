@@ -55,6 +55,13 @@ def main():
         if murl:
             args.cover = murl
 
+    # LET OP: er gaat bewust geen `status` mee. Dit is het eigen endpoint van de
+    # Book Showcase-plugin, en die publiceert de boekpagina DIRECT OPENBAAR —
+    # nagemeten op 6 nov 2026 (anoniem bereikbaar op dagzoom.nl/boeken/<slug>/).
+    # Dat is zo bedoeld: de showcase ís de publieke vitrine. Het KB-artikel naast
+    # deze stap gaat wél als concept de deur uit (wp-publish-draft.py, status=draft).
+    # Voeg hier dus geen `"status": "draft"` toe "ter correctie" — de CLAUDE.md's
+    # beweerden dat eerder en zijn op 6 nov rechtgezet, niet dit script.
     payload = {
         "license_key": lic,
         "title": title,

@@ -66,7 +66,7 @@ shim werkt ook als je hem van buiten de vault aanroept.
 | `capacities-check.py` | Controleert de Capacities-credentials vóór/na een rotatie: herkomst, of de sleutel werkt, en of hij nergens in de vijf repo's lekt |
 | `fill-capacities-photos.py` | Zoekt en koppelt foto's bij Capacities-persoonobjecten |
 | `wp-publish-draft.py` | Publiceert een export als WordPress-**concept** (Knowledge Base e.d.) |
-| `wp-book-showcase.py` | Publiceert een boek naar de Book Showcase-plugin |
+| `wp-book-showcase.py` | Publiceert een boek naar de Book Showcase-plugin — **direct openbaar**, zo bedoeld |
 | `wp-upload-cover.py` | Upload een cover naar de WP-mediabibliotheek, print de publieke URL |
 | `daily-book-orchestrator.sh` | Kiest één vault per dag (round-robin) en start diens boekwrapper — launchd 06:00 |
 | `daily-github-sync.sh` | Haalt de upload-inbox van elke vault leeg (stap 0), commit ongecommit werk en synchroniseert alle repo's met GitHub — launchd 03:00 |

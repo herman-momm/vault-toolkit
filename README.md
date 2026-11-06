@@ -54,6 +54,7 @@ shim werkt ook als je hem van buiten de vault aanroept.
 | `gemini-book-runner.py` | Volautomatische boeksamenvatting via Gemini (fallback als de Claude CLI aan zijn limiet zit) |
 | `gemini-fallback.py` | Kale Gemini API-caller voor losse vault-taken |
 | `capacities-push.py` | Capacities API: Boek-objecten, pagina's, daily note |
+| `capacities-check.py` | Controleert de Capacities-credentials vóór/na een rotatie: herkomst, of de sleutel werkt, en of hij nergens in de vijf repo's lekt |
 | `fill-capacities-photos.py` | Zoekt en koppelt foto's bij Capacities-persoonobjecten |
 | `wp-publish-draft.py` | Publiceert een export als WordPress-**concept** (Knowledge Base e.d.) |
 | `wp-book-showcase.py` | Publiceert een boek naar de Book Showcase-plugin |
@@ -116,6 +117,27 @@ een geautomatiseerde boekenrun 52 kapotte links achterliet.
 
 Een gezette environment variable gaat altijd vóór het bestand, zodat een
 cloud-sessie zonder credentialbestand gewoon werkt.
+
+**Een Capacities-sleutel roteren.** De sleutel leeft op precies één plek,
+`~/.config/histvault/capacities.env` (`CAPACITIES_TOKEN`); alle consumenten —
+`capacities-push.py`, `fill-capacities-photos.py`, `gemini-book-runner.py` via
+de eerste, en de twee scripts in `ClaudeVault/scripts/experiments/` — lezen hem
+daar via `vaultenv.py`. De MCP-connector van Capacities staat los: die is in
+`~/.claude.json` als `type: http` naar `api.capacities.io/mcp` geconfigureerd,
+zonder token, en wordt door een rotatie dus niet geraakt. Na het bijwerken van
+het bestand:
+
+```bash
+python3 scripts/capacities-check.py      # --no-api om de netwerkcheck te slaan
+```
+
+Die controleert de herkomst (en waarschuwt als een `CAPACITIES_TOKEN` in de
+omgeving het bestand overrult), of de sleutel door de API wordt geaccepteerd, of
+de geconfigureerde space ermee bereikbaar is, en of er in geen van de vijf
+repo's — werkmap én volledige historie over alle refs — nog iets in de
+sleutelvorm staat. Hij doet alleen GET-aanroepen en schrijft dus nooit in de
+space. Dit script heeft **geen shim** in de vaults, anders dan de andere: het
+bepaalt zelf welke paden het nakijkt en heeft geen vaultcontext nodig.
 
 Voor de Vercel Blob-tokens geldt daarnaast een **vault-specifieke** naam, zodat
 drie vaults in één omgeving elkaars store niet raken:

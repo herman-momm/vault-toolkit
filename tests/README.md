@@ -21,7 +21,7 @@ behalve `test_launchd.sh`, dat niets neerzet en alleen de bestanden in
 | `test_link_hygiene.py` | de link-sanitizer, duplicaatwacht en index-update in `gemini-book-runner.py` | 32 |
 | `test_github_sync.sh` | auto-commit, secret-rem, rebase-herstel, dry-run en de inbox-stap van `daily-github-sync.sh` | 51 |
 | `test_store_id.sh` | de store-ID-controle in `sync-blob-inbox.py` | 15 |
-| `test_automation_check.sh` | de verouderingscheck op geplande taken in `vault-status.py` | 16 |
+| `test_automation_check.sh` | de verouderings- én uitkomstcheck op geplande taken in `vault-status.py` | 29 |
 | `test_launchd.sh` | het schema en de wrappers in `launchd/`, en de dekking van `install.sh` | 75 |
 | `test_tls.sh` | dat geen script certificaatcontrole omzeilt, en dat `vaultenv.tls_context()` echt verifieert | 15 |
 
@@ -44,10 +44,17 @@ een stille fout duur is:
   secret in de wijziging wordt geweigerd in plaats van gecommit.
 - De **store-ID-controle** voorkomt dat de inbox-sync in de ene vault met het
   token van een andere draait en bestanden in de verkeerde `raw/` zet.
-- De **verouderingscheck** is de vangnetlaag onder alle drie: launchd haalt een
-  gemiste slag in als de Mac uit stond, maar een run die *faalt* meldde niets.
-  Op de dag dat de check werd toegevoegd bleek de websitecontrole al 37 uur stil
-  te staan zonder dat iets dat liet zien.
+- De **verouderings- en uitkomstcheck** is de vangnetlaag onder alle drie.
+  Launchd haalt een gemiste slag in als de Mac uit stond, dus "heeft lang niet
+  gedraaid" was het eerste signaal: op de dag dat die check werd toegevoegd stond
+  de websitecontrole al 37 uur stil zonder dat iets dat liet zien. Maar een run
+  die *faalt* schrijft óók in zijn log, dus een verse mtime betekende nog niets —
+  op 6 nov 2026 weigerde de sync twee repo's en bleef de taak groen. Nu wordt het
+  laatste runblok gelezen. De lastige kant daarvan is de valse positief: de
+  boekentaak logt `!! CLI Subscription Limit` en slaagt dan alsnog via de
+  Gemini-fallback, dus het slotwoord van een run (`exit=`, een eindregel met
+  aantallen, `GESLAAGD`) gaat vóór geschreeuw onderweg. Beide kanten staan in de
+  tests: handled-en-geslaagd blijft groen, hetzelfde log met `exit=1` wordt rood.
 - De **certificaatcontrole** is de enige suite die een *verbod* toetst in plaats
   van gedrag. Tot 6 nov 2026 gebruikten vier scripts
   `ssl._create_unverified_context()`, twee ervan als stille terugval bij élke

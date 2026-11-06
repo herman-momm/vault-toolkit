@@ -3,7 +3,7 @@
 
 Waarom deze suite bestaat: tot 6 november 2026 konden `capacities-push.py` en
 `wp-book-showcase.py` al een omslag, ISBN en uitgever aan, maar
-`gemini-book-runner.py` gaf ze niet mee — en tags en Persoon-objecten bestonden
+`daily-book-fallback.py` gaf ze niet mee — en tags en Persoon-objecten bestonden
 in het push-script helemaal niet. Het resultaat was een Boek-object met een lege
 `coverImage`, lege `tags` en een onvolledige `auteur`, zonder dat ergens een
 foutmelding verscheen. Precies het soort gat dat je alleen ziet als je het
@@ -44,7 +44,7 @@ def laad(bestand, naam):
 
 
 cap = laad("capacities-push.py", "cap")
-runner = laad("gemini-book-runner.py", "runner")
+runner = laad("daily-book-fallback.py", "runner")
 
 # --- 1. auteursnamen splitsen ---------------------------------------------
 print("--- auteursnamen ---")

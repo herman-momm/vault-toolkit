@@ -242,7 +242,7 @@ esac
 cat > "$BOOK_LOG" <<'LOG'
 ===== START 2026-11-06 06:00:56 CET =====
 !! CLI Subscription Limit bereikt op OAuth token.
-Terugvallen op gemini-book-runner.py...
+Terugvallen op daily-book-fallback.py...
 === GESLAAGD! Boek 'Testboek' is verwerkt. ===
 ----- Dagelijkse boeksamenvatting einde 06:03:58 exit=0 -----
 ===== EINDE 2026-11-06 06:03:58 =====
@@ -269,7 +269,7 @@ esac
 cat > "$BOOK_LOG" <<'LOG'
 ===== START 2026-11-06 06:00:56 CET =====
 Traceback (most recent call last):
-  File "gemini-book-runner.py", line 1, in <module>
+  File "daily-book-fallback.py", line 1, in <module>
 LOG
 ouder "$BOOK_LOG" 1
 uit=$(draai_status)

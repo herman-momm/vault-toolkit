@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests voor de vault-hygiëne in gemini-book-runner.py.
+"""Tests voor de vault-hygiëne in daily-book-fallback.py.
 
 Deze functies bestaan omdat een geautomatiseerde boekenrun op 5 november 2026
 in HistVault 52 kapotte links en een duplicaat-bronpagina achterliet. Het model
@@ -18,7 +18,7 @@ import sys
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 TOOLKIT = os.path.dirname(HIER)
-RUNNER = os.path.join(TOOLKIT, "scripts", "gemini-book-runner.py")
+RUNNER = os.path.join(TOOLKIT, "scripts", "daily-book-fallback.py")
 
 sys.path.insert(0, HIER)
 import fixture_vault  # noqa: E402

@@ -61,7 +61,7 @@ shim werkt ook als je hem van buiten de vault aanroept.
 | `book-cover.py` | Omslag voor élk boekformaat: delegeert voor EPUB, rendert pagina 1 voor PDF |
 | `md2pdf.py` | Export-markdown naar huisstijl-PDF (A4, tabellen, callouts, inline afbeeldingen) |
 | `md2docx.py` | Dezelfde markdown-subset naar huisstijl-Word (.docx), accentkleur `#1F3864` |
-| `gemini-book-runner.py` | Volautomatische boeksamenvatting via Gemini (fallback als de Claude CLI aan zijn limiet zit) |
+| `daily-book-fallback.py` | De hele dagelijkse boekpijplijn in Python, voor als de Claude CLI aan zijn limiet zit; alleen de samenvatting komt van Gemini |
 | `gemini-fallback.py` | Kale Gemini API-caller voor losse vault-taken |
 | `capacities-push.py` | Capacities API: Boek-objecten, pagina's, daily note |
 | `capacities-check.py` | Controleert de Capacities-credentials vóór/na een rotatie: herkomst, of de sleutel werkt, en of hij nergens in de vijf repo's lekt |
@@ -97,12 +97,12 @@ in de plists.
 ## Tests
 
 ```bash
-tests/run-tests.sh        # 255 checks over 7 suites
+tests/run-tests.sh        # 260 checks over 7 suites
 tests/run-tests.sh -v     # met alle checks erbij
 ```
 
 Regressietests voor de scripts die ongevraagd en zonder toezicht draaien: de
-link-sanitizer en duplicaatwacht van `gemini-book-runner.py`, de auto-commit en
+link-sanitizer en duplicaatwacht van `daily-book-fallback.py`, de auto-commit en
 secret-rem van `daily-github-sync.sh`, de store-ID-controle van
 `sync-blob-inbox.py`, de verouderingscheck op de geplande taken, het schema en
 de wrappers in `launchd/`, en het verbod op code die certificaatcontrole omzeilt.
@@ -131,7 +131,7 @@ cloud-sessie zonder credentialbestand gewoon werkt.
 
 **Een Capacities-sleutel roteren.** De sleutel leeft op precies één plek,
 `~/.config/histvault/capacities.env` (`CAPACITIES_TOKEN`); alle consumenten —
-`capacities-push.py`, `fill-capacities-photos.py`, `gemini-book-runner.py` via
+`capacities-push.py`, `fill-capacities-photos.py`, `daily-book-fallback.py` via
 de eerste, en de twee scripts in `ClaudeVault/scripts/experiments/` — lezen hem
 daar via `vaultenv.py`. De MCP-connector van Capacities staat los: die is in
 `~/.claude.json` als `type: http` naar `api.capacities.io/mcp` geconfigureerd,

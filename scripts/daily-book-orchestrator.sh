@@ -13,7 +13,7 @@
 #     handoff (vorige run halverwege afgebroken), dan krijgt die voorrang.
 #   - Roept de per-vault wrapper `daily-book-summary.sh` aan. Die probeert
 #     eerst de Claude CLI met de prompts in scripts/daily-book-prompt*.md en
-#     valt bij een rate limit terug op scripts/gemini-book-runner.py.
+#     valt bij een rate limit terug op scripts/daily-book-fallback.py.
 #   - Onthoudt in een state-bestand welke vault als laatste draaide.
 #
 # Overrides (voor een test of een eenmalige run):

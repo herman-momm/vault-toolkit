@@ -199,6 +199,49 @@ for w in "$LD"/wrappers/*.sh; do
 done
 
 echo
+echo "--- scriptverwijzingen in de dagelijkse keten ---"
+# Een hernoemd script breekt pas op als de keten erlangs komt: bij de boekentaak
+# is dat alleen wanneer de Claude CLI aan zijn limiet zit. Dat kan maanden duren
+# (de fallback is sinds zijn bestaan drie keer gelopen), dus een kapotte
+# verwijzing wordt hier getoetst in plaats van afgewacht.
+WERKRUIMTE_T="$(cd "$ROOT/.." && pwd)"
+gevonden=0
+for vault in ClaudeVault HistVault GroeneVault; do
+  wrapper="$WERKRUIMTE_T/$vault/scripts/daily-book-summary.sh"
+  [ -f "$wrapper" ] || continue
+  while IFS= read -r naam; do
+    gevonden=$((gevonden + 1))
+    if [ -f "$WERKRUIMTE_T/$vault/scripts/$naam" ]; then
+      ok "$vault roept bestaand $naam aan"
+    else
+      faal "$vault verwijst naar $naam, dat niet bestaat"
+    fi
+  done < <(grep -oE '\$VAULT/scripts/[A-Za-z0-9_-]+\.py' "$wrapper" \
+             | sed 's|.*/||' | sort -u)
+done
+if [ "$gevonden" -eq 0 ]; then
+  faal "geen scriptverwijzingen gevonden in de boekwrappers — zoekpatroon stuk?"
+else
+  ok "$gevonden verwijzing(en) gecontroleerd"
+fi
+
+# De oude naam mag nergens in de toolkit meer staan. Drie plekken mogen hem wél
+# noemen: de docstring van het hernoemde script (die legt de hernoeming uit),
+# dit testbestand (dat de naam als zoekterm bevat) en gecompileerde .pyc's, die
+# geen bron zijn. Zonder die uitzonderingen slaat de check op zichzelf aan —
+# dezelfde valkuil als bij de TLS-suite.
+oud=$(grep -rl --include="*.py" --include="*.sh" --include="*.md" \
+        "gemini-book-runner" "$ROOT/scripts" "$ROOT/tests" "$ROOT/README.md" 2>/dev/null \
+        | grep -v "__pycache__" \
+        | grep -v "daily-book-fallback.py" \
+        | grep -v "test_launchd.sh" || true)
+if [ -z "$oud" ]; then
+  ok "geen verwijzing naar de oude scriptnaam in de toolkit"
+else
+  faal "oude scriptnaam staat nog in: $oud"
+fi
+
+echo
 if [ "$fouten" -gt 0 ]; then
   echo "=== $fouten controle(s) gefaald ==="
   exit 1

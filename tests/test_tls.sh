@@ -2,7 +2,7 @@
 # Bewaakt dat de toolkit-scripts https mét certificaatcontrole doen.
 #
 # Waarom: tot 6 nov 2026 gebruikten capacities-push.py, fill-capacities-photos.py,
-# gemini-book-runner.py en gemini-fallback.py `ssl._create_unverified_context()`,
+# daily-book-fallback.py en gemini-fallback.py `ssl._create_unverified_context()`,
 # de laatste twee als stille terugval bij élke uitzondering. Bij elke API-aanroep
 # ging daardoor een bearer-token de deur uit zonder dat het certificaat van de
 # tegenpartij werd gecontroleerd. De oorzaak was een ontbrekende CA-bundel in de
@@ -107,7 +107,7 @@ echo "$uit" | grep -q "bundel: geen bundel gevonden" \
 
 echo
 echo "--- gebruiken de credentialscripts die context? ---"
-for f in capacities-push.py fill-capacities-photos.py gemini-book-runner.py gemini-fallback.py capacities-check.py; do
+for f in capacities-push.py fill-capacities-photos.py daily-book-fallback.py gemini-fallback.py capacities-check.py; do
   if [ ! -f "$SCRIPTS/$f" ]; then
     faal "$f bestaat niet"
     continue

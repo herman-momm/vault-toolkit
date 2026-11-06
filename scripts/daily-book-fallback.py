@@ -1,6 +1,22 @@
 #!/usr/bin/env python3
 """
-gemini-book-runner.py — Geautomatiseerde boeksamenvatting via Gemini 3.8 Flash.
+daily-book-fallback.py — de dagelijkse boekpijplijn, zonder Claude.
+
+Dit is géén Gemini-adapter, ook al heette het bestand tot 6 nov 2026
+`gemini-book-runner.py`. Het is een **tweede, volledige implementatie** van de
+dagelijkse boekverwerking: wachtrij, tekstextractie, samenvatting, link-sanitizer,
+duplicaatwacht, vault-pagina's, PDF, WordPress, Capacities, index, logregel en
+queue-pop. Daarvan gaat precies één stap over Gemini — de samenvatting. De oude
+naam liet dit lijken op een smal hulpje, waardoor niemand eraan dacht het gelijk
+te houden met de CLI-receptuur in `daily-book-prompt.md`; dat is de reden dat de
+omslag, de tags en de tweede auteur hier maandenlang ontbraken.
+
+Hij draait niet uit de scheduler. De keten is: launchd 06:00 →
+`daily-book-orchestrator.sh` (kiest een vault) → `<vault>/daily-book-summary.sh`,
+die eerst de Claude CLI probeert. Pas als die een limiet meldt én er geen
+`ANTHROPIC_API_KEY` is, komt dit script aan de beurt. Handmatig draaien kan ook,
+vanuit de vaultroot.
+
 Verwerkt PDF/EPUB boeken uit book-queue.txt in 1 snelle, complete pass.
 
 Vault-hygiëne (toegevoegd 2026-11-05 na de Doggerland-run):
@@ -509,7 +525,7 @@ def main():
         print(f"Boekbestand niet gevonden in raw/: {book_path}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"=== Gemini Book Runner gestart voor: {book_filename} ===")
+    print(f"=== Boekpijplijn (fallback, samenvatting via Gemini) gestart voor: {book_filename} ===")
     today = datetime.date.today().strftime("%Y-%m-%d")
 
     if book_filename.lower().endswith(".pdf"):

@@ -40,7 +40,7 @@ draai() { # $1 = omschrijving, $2.. = commando
   fi
 }
 
-draai "link-hygiëne (gemini-book-runner)" python3 "$HIER/test_link_hygiene.py"
+draai "link-hygiëne (daily-book-fallback)" python3 "$HIER/test_link_hygiene.py"
 draai "github-sync (daily-github-sync)"   bash    "$HIER/test_github_sync.sh"
 draai "store-ID (sync-blob-inbox)"        bash    "$HIER/test_store_id.sh"
 draai "automatisering (vault-status)"      bash    "$HIER/test_automation_check.sh"

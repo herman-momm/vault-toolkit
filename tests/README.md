@@ -18,11 +18,11 @@ behalve `test_launchd.sh`, dat niets neerzet en alleen de bestanden in
 
 | Suite | Bewaakt | Checks |
 |---|---|---|
-| `test_link_hygiene.py` | de link-sanitizer, duplicaatwacht, index-update en de boekhouding van de uitvoerstappen in `gemini-book-runner.py` | 39 |
+| `test_link_hygiene.py` | de link-sanitizer, duplicaatwacht, index-update en de boekhouding van de uitvoerstappen in `daily-book-fallback.py` | 39 |
 | `test_github_sync.sh` | auto-commit, secret-rem, rebase-herstel, dry-run en de inbox-stap van `daily-github-sync.sh` | 51 |
 | `test_store_id.sh` | de store-ID-controle in `sync-blob-inbox.py` | 15 |
 | `test_automation_check.sh` | de verouderings- én uitkomstcheck op geplande taken in `vault-status.py` | 29 |
-| `test_launchd.sh` | het schema en de wrappers in `launchd/`, en de dekking van `install.sh` | 75 |
+| `test_launchd.sh` | het schema en de wrappers in `launchd/`, de dekking van `install.sh`, en of de scriptverwijzingen in de boekketen bestaan | 80 |
 | `test_tls.sh` | dat geen script certificaatcontrole omzeilt, en dat `vaultenv.tls_context()` echt verifieert | 15 |
 | `test_book_enrichment.py` | omslag, tags, Persoon-objecten en boekkenmerken bij een boekpublicatie | 31 |
 

@@ -36,11 +36,45 @@ mkrepo() { # $1 = naam
   git -C "$WS/$name" push -q -u origin main 2>/dev/null
 }
 
+# Stap 0 (de upload-inbox) staat hier UIT. Zonder die rem zouden deze tests de
+# echte blob-store van ClaudeVault/HistVault/GroeneVault aanroepen — netwerk, en
+# bestanden in de raw/ van een echte vault. De inbox-stap krijgt zijn eigen
+# runner met een stub, hieronder.
 run() {
   local dry="${2:-0}"
   VAULT_WORKSPACE="$WS" VAULT_SYNC_REPOS="$1" VAULT_SYNC_LOG="$LOG" \
-    VAULT_SYNC_DRY_RUN="$dry" bash "$SCRIPT" >/dev/null 2>&1
+    VAULT_SYNC_DRY_RUN="$dry" VAULT_SYNC_SKIP_INBOX=1 \
+    bash "$SCRIPT" >/dev/null 2>&1
   echo $?
+}
+
+# Zelfde runner, maar met stap 0 aan voor de opgegeven vaults. VAULT_SYNC_PYTHON
+# staat op `bash`, zodat de stub hieronder geen python nodig heeft.
+run_inbox() { # $1 = repolijst, $2 = inboxvaults, $3 = dry-run (optioneel)
+  VAULT_WORKSPACE="$WS" VAULT_SYNC_REPOS="$1" VAULT_SYNC_LOG="$LOG" \
+    VAULT_SYNC_DRY_RUN="${3:-0}" VAULT_SYNC_INBOX_VAULTS="$2" \
+    VAULT_SYNC_PYTHON=bash bash "$SCRIPT" >/dev/null 2>&1
+  echo $?
+}
+
+# Nep-sync-blob-inbox.py: praat als het echte script, raakt geen netwerk.
+# $1 = vault, $2 = exitcode, $3 = bestand dat het "ophaalt" (leeg = inbox leeg)
+mkinbox() {
+  mkdir -p "$WS/$1/scripts" "$WS/$1/raw"
+  {
+    echo 'echo "Token uit: teststub"'
+    echo 'if [ "$1" = "--dry-run" ]; then'
+    echo '  echo "--dry-run: niets gedownload of verwijderd."'
+    echo "  exit $2"
+    echo 'fi'
+    if [ -n "${3:-}" ]; then
+      echo 'echo inhoud > "$VAULT_ROOT/raw/'"$3"'"'
+      echo 'echo "Klaar. Nieuwe bestanden staan in raw/: '"$3"'"'
+    else
+      echo 'echo "Inbox is leeg — niets te synchroniseren."'
+    fi
+    echo "exit $2"
+  } > "$WS/$1/scripts/sync-blob-inbox.py"
 }
 
 mkdir -p "$WS"
@@ -88,10 +122,22 @@ check "3d bestanden nog aanwezig" "$(ls "$WS/beta/.env.local" >/dev/null 2>&1 &&
 grep -q "GEWEIGERD" "$LOG" && ok "3e waarschuwing in het log" || bad "3e waarschuwing ontbreekt"
 
 # --- 3b. secret-rem op INHOUD: gewone bestandsnaam, sleutel in de tekst ---
+#
+# De fixture-sleutel wordt hier SAMENGESTELD en staat niet voluit in dit
+# bestand. Twee redenen, beide op 6 nov 2026 pijnlijk duidelijk geworden:
+#   1. Een literal in de sleutelvorm laat dit testbestand zélf de secret-rem
+#      matchen, waardoor de nachtsync de hele vault-toolkit-repo overslaat
+#      zodra iemand deze tests aanraakt.
+#   2. Wat hier als "fixture" stond, was de échte Capacities-sleutel. Die is
+#      uit de (nog ongepushte) historie van dit repo geredigeerd; `cap-api-`
+#      gevolgd door niets-in-de-tekenklasse matcht de rem niet.
+# De sandbox-kopie hieronder krijgt wél een sleutel die de rem moet vangen —
+# daar hoort hij, en die map is een wegwerpmap.
 mkrepo zeta
-cat > "$WS/zeta/experiment.py" <<'PY'
+fixture_key="cap-api-$(printf 'X%.0s' $(seq 1 40))"
+cat > "$WS/zeta/experiment.py" <<PY
 import urllib.request
-token = 'cap-api-REDACTED'
+token = '$fixture_key'
 PY
 echo "gewone pagina" > "$WS/zeta/wiki.md"
 rc=$(run zeta)
@@ -151,6 +197,54 @@ grep -q "DRY-RUN" "$LOG" && ok "6d dry-run gemeld" || bad "6d melding ontbreekt"
 rc=$(run "bestaat-niet")
 check "7a exitcode 0" "$rc" "0"
 grep -q "Sla over: geen git-directory" "$LOG" && ok "7b overslaan gelogd" || bad "7b melding ontbreekt"
+
+# --- 8. stap 0: wat de inbox oplevert, wordt in DEZELFDE run gecommit ---
+# Dit is de hele keten in één test: blob -> raw/ -> commit -> push. Zonder die
+# laatste schakel zou het bestand pas de volgende nacht in git belanden.
+mkrepo theta
+mkinbox theta 0 "nieuw-boek.pdf"
+rc=$(run_inbox theta theta)
+check "8a exitcode 0"                "$rc" "0"
+check "8b bestand in raw/"           "$(ls "$WS/theta/raw/nieuw-boek.pdf" >/dev/null 2>&1 && echo ja)" "ja"
+check "8c werkmap schoon na run"     "$(git -C "$WS/theta" status --porcelain | wc -l | tr -d ' ')" "0"
+check "8d raw-bestand gecommit"      "$(git -C "$WS/theta" ls-files raw/nieuw-boek.pdf | wc -l | tr -d ' ')" "1"
+check "8e alles gepusht"             "$(git -C "$WS/theta" log origin/main..HEAD --oneline | wc -l | tr -d ' ')" "0"
+grep -q "\[theta\] inbox: Token uit: teststub" "$LOG" && ok "8f uitvoer van het script in het log" || bad "8f uitvoer niet gelogd"
+grep -q "Stap 0: upload-inbox van 1 vault" "$LOG" && ok "8g stap 0 aangekondigd" || bad "8g aankondiging ontbreekt"
+
+# --- 9. mislukte inbox-sync: luid gemeld, maar de git-sync gaat door ---
+mkrepo iota
+mkinbox iota 1 ""
+echo "gewoon werk" > "$WS/iota/wiki.md"
+rc=$(run_inbox iota iota)
+check "9a exitcode 1 (inbox-fout telt mee)" "$rc" "1"
+check "9b git-sync tóch gedaan"             "$(git -C "$WS/iota" status --porcelain | wc -l | tr -d ' ')" "0"
+check "9c werk gepusht"                     "$(git -C "$WS/iota" log origin/main..HEAD --oneline | wc -l | tr -d ' ')" "0"
+grep -q "inbox-sync MISLUKT (exitcode 1)" "$LOG" && ok "9d mislukking luid gemeld" || bad "9d melding ontbreekt"
+grep -q "1 inbox-sync(s) mislukt" "$LOG" && ok "9e in de eindregel geteld" || bad "9e niet in de eindregel"
+
+# --- 10. vault zonder het script wordt netjes overgeslagen ---
+mkrepo kappa
+rc=$(run_inbox kappa kappa)
+check "10a exitcode 0" "$rc" "0"
+grep -q "\[kappa\] inbox: sla over" "$LOG" && ok "10b overslaan gelogd" || bad "10b melding ontbreekt"
+
+# --- 11. dry-run haalt niets op ---
+mkrepo lambda
+mkinbox lambda 0 "zou-niet-moeten-bestaan.pdf"
+rc=$(run_inbox lambda lambda 1)
+check "11a exitcode 0"            "$rc" "0"
+check "11b niets gedownload"      "$(ls "$WS/lambda/raw/zou-niet-moeten-bestaan.pdf" >/dev/null 2>&1 && echo ja || echo nee)" "nee"
+grep -q "\[lambda\] inbox: --dry-run" "$LOG" && ok "11c --dry-run doorgegeven" || bad "11c vlag niet doorgegeven"
+
+# --- 12. VAULT_SYNC_SKIP_INBOX=1 slaat stap 0 helemaal over ---
+mkrepo mu
+mkinbox mu 1 ""
+VAULT_WORKSPACE="$WS" VAULT_SYNC_REPOS="mu" VAULT_SYNC_LOG="$LOG" \
+  VAULT_SYNC_INBOX_VAULTS="mu" VAULT_SYNC_SKIP_INBOX=1 VAULT_SYNC_PYTHON=bash \
+  bash "$SCRIPT" >/dev/null 2>&1
+check "12a exitcode 0 (falende stub niet aangeroepen)" "$?" "0"
+grep -q "Stap 0 (upload-inbox) overgeslagen" "$LOG" && ok "12b overslaan gelogd" || bad "12b melding ontbreekt"
 
 echo
 if [ "$fails" -gt 0 ]; then

@@ -137,6 +137,46 @@ try:
     os.remove(os.path.join(VAULT, "wiki", "index.md"))
     check("geen index.md: lege uitkomst, geen fout",
           runner.update_index(VAULT, "2026-11-06", [("query", qline)]), [])
+
+    # --- uitvoerstappen: een mislukking moet geregistreerd worden -----------
+    # De vijf publicatiestappen stonden op check=False, dus een gefaalde
+    # publicatie liep stil mee in een run die "GESLAAGD" meldde. Dit toetst de
+    # boekhouding die dat zichtbaar maakt.
+    import stat as _stat
+    import tempfile
+
+    tmp = tempfile.mkdtemp()
+    try:
+        goed = os.path.join(tmp, "goed.sh")
+        slecht = os.path.join(tmp, "slecht.sh")
+        with open(goed, "w") as fh:
+            fh.write("#!/bin/bash\nexit 0\n")
+        with open(slecht, "w") as fh:
+            fh.write("#!/bin/bash\nexit 7\n")
+        for p in (goed, slecht):
+            os.chmod(p, os.stat(p).st_mode | _stat.S_IEXEC)
+
+        mislukt = []
+        check("geslaagde stap geeft True",
+              runner.voer_stap_uit("test-ok", goed, ["/bin/bash", goed], mislukt), True)
+        check("geslaagde stap voegt niets toe", mislukt, [])
+
+        check("falende stap geeft False",
+              runner.voer_stap_uit("test-faal", slecht, ["/bin/bash", slecht], mislukt),
+              False)
+        check("falende stap wordt geregistreerd met exitcode", mislukt,
+              ["test-faal — exitcode 7"])
+
+        ontbreekt = os.path.join(tmp, "bestaat-niet.py")
+        check("ontbrekend script geeft False",
+              runner.voer_stap_uit("test-weg", ontbreekt,
+                                   [sys.executable, ontbreekt], mislukt), False)
+        check("ontbrekend script wordt geregistreerd i.p.v. stil overgeslagen",
+              mislukt[-1], "test-weg — script niet gevonden")
+        check("twee mislukkingen geteld", len(mislukt), 2)
+    finally:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
 finally:
     fixture_vault.ruim_op(VAULT)
 

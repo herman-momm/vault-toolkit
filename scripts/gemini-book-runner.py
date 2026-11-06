@@ -316,6 +316,34 @@ def run_status(vault_dir):
     return out[-1] if out else ""
 
 
+def voer_stap_uit(naam, script, cmd, mislukt):
+    """Voert een uitvoerstap uit en onthoudt het als hij niet lukt.
+
+    Waarom dit bestaat: de vijf uitvoerstappen (PDF, twee keer WordPress, twee
+    keer Capacities) stonden alle op `check=False`. Faalde er een, dan liep de
+    run door, printte alsnog "GESLAAGD" en eindigde met exit=0. Een gemiste
+    publicatie was daardoor nergens te zien — ook niet op het statusdashboard,
+    dat juist het slotwoord van een run leest. Ontbrak het script zelfs, dan
+    werd de stap stil overgeslagen.
+
+    De run wordt hier niet afgebroken: het boek is op dit punt al in de vault
+    verwerkt en uit de wachtrij gepopt, dus opnieuw proberen zou dubbel werk
+    opleveren. De mislukking wordt onthouden en aan het eind luid gemeld, en de
+    exitcode van de run wordt niet-nul — dat is wat het dashboard oppikt.
+    """
+    if not script or not os.path.exists(script):
+        print(f"!! {naam}: script niet gevonden ({script}) — stap overgeslagen",
+              file=sys.stderr)
+        mislukt.append(f"{naam} — script niet gevonden")
+        return False
+    proc = subprocess.run(cmd)
+    if proc.returncode != 0:
+        print(f"!! {naam}: MISLUKT (exitcode {proc.returncode})", file=sys.stderr)
+        mislukt.append(f"{naam} — exitcode {proc.returncode}")
+        return False
+    return True
+
+
 def call_gemini(prompt, api_key, model="gemini-3.8-flash"):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     payload = {
@@ -513,47 +541,52 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
         for t in ontlinkt:
             print(f"  - {t}")
 
+    # Uitvoerstappen: elke mislukking komt in `mislukt` en maakt de exitcode
+    # niet-nul, zodat het dashboard het de volgende ochtend meldt.
+    mislukt = []
+
+    def toolkit_pad(naam):
+        lokaal = os.path.join(vault_dir, "scripts", naam)
+        return lokaal if os.path.exists(lokaal) else os.path.expanduser(
+            "~/Library/Mobile Documents/com~apple~CloudDocs/LLM-Workspace/"
+            f"vault-toolkit/scripts/{naam}")
+
     print("PDF bouwen via md2pdf.py...")
-    md2pdf_script = os.path.join(vault_dir, "scripts", "md2pdf.py")
-    if not os.path.exists(md2pdf_script):
-        md2pdf_script = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/LLM-Workspace/vault-toolkit/scripts/md2pdf.py")
-    if os.path.exists(md2pdf_script):
-        subprocess.run([sys.executable, md2pdf_script, export_file], check=False)
+    voer_stap_uit("PDF (md2pdf.py)", toolkit_pad("md2pdf.py"),
+                  [sys.executable, toolkit_pad("md2pdf.py"), export_file], mislukt)
 
     print("WordPress concept publiceren via wp-publish-draft.py...")
-    wp_draft_script = os.path.join(vault_dir, "scripts", "wp-publish-draft.py")
-    if not os.path.exists(wp_draft_script):
-        wp_draft_script = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/LLM-Workspace/vault-toolkit/scripts/wp-publish-draft.py")
-    if os.path.exists(wp_draft_script):
-        subprocess.run([sys.executable, wp_draft_script, export_file, "--title", f"{data['title']} ({data['author']})"], check=False)
+    wp_draft_script = toolkit_pad("wp-publish-draft.py")
+    voer_stap_uit("WordPress-concept (wp-publish-draft.py)", wp_draft_script,
+                  [sys.executable, wp_draft_script, export_file,
+                   "--title", f"{data['title']} ({data['author']})"], mislukt)
 
     print("WordPress Book Showcase publiceren via wp-book-showcase.py...")
-    wp_showcase_script = os.path.join(vault_dir, "scripts", "wp-book-showcase.py")
-    if not os.path.exists(wp_showcase_script):
-        wp_showcase_script = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/LLM-Workspace/vault-toolkit/scripts/wp-book-showcase.py")
-    if os.path.exists(wp_showcase_script):
-        cmd = [sys.executable, wp_showcase_script, export_file, "--title", data['title'], "--author", data['author']]
-        if data.get("year"):
-            cmd.extend(["--year", str(data['year'])])
-        subprocess.run(cmd, check=False)
+    wp_showcase_script = toolkit_pad("wp-book-showcase.py")
+    cmd = [sys.executable, wp_showcase_script, export_file,
+           "--title", data['title'], "--author", data['author']]
+    if data.get("year"):
+        cmd.extend(["--year", str(data['year'])])
+    voer_stap_uit("WordPress Book Showcase (wp-book-showcase.py)",
+                  wp_showcase_script, cmd, mislukt)
 
     print("Capacities publiceren via capacities-push.py...")
-    cap_script = os.path.join(vault_dir, "scripts", "capacities-push.py")
-    if not os.path.exists(cap_script):
-        cap_script = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/LLM-Workspace/vault-toolkit/scripts/capacities-push.py")
-    if os.path.exists(cap_script):
-        daily_msg = f"📚 **{data['title']}** — {data['author']} ({data.get('year', '')})\nUitgebreide boeksamenvatting en analyse verwerkt in de vault."
-        subprocess.run([sys.executable, cap_script, "--daily-note", daily_msg], check=False)
-        cap_cmd = [
-            sys.executable, cap_script,
-            "--book-md", export_file,
-            "--title", data['title'],
-            "--author", data['author'],
-            "--desc", f"Boek van {data['author']}"
-        ]
-        if data.get("year"):
-            cap_cmd.extend(["--year", str(data['year'])])
-        subprocess.run(cap_cmd, check=False)
+    cap_script = toolkit_pad("capacities-push.py")
+    daily_msg = (f"📚 **{data['title']}** — {data['author']} ({data.get('year', '')})\n"
+                 "Uitgebreide boeksamenvatting en analyse verwerkt in de vault.")
+    voer_stap_uit("Capacities daily note (capacities-push.py)", cap_script,
+                  [sys.executable, cap_script, "--daily-note", daily_msg], mislukt)
+    cap_cmd = [
+        sys.executable, cap_script,
+        "--book-md", export_file,
+        "--title", data['title'],
+        "--author", data['author'],
+        "--desc", f"Boek van {data['author']}"
+    ]
+    if data.get("year"):
+        cap_cmd.extend(["--year", str(data['year'])])
+    voer_stap_uit("Capacities Boek-object (capacities-push.py)", cap_script,
+                  cap_cmd, mislukt)
 
     print("index.md bijwerken (catalogusregel + statistiek)...")
     desc = (data.get("index_description") or "").strip().rstrip(".")
@@ -583,9 +616,17 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
         log_entry = f"\n\n## [{today}] query | Uitgebreide samenvatting: {data['title']} ({data['author']})\n"
         log_entry += f"Querypagina: [[{query_rel}]]\n"
         log_entry += f"Bronpagina: [[{source_rel}]]{' (bestond al; niet gedupliceerd)' if existing_src else ''}\n"
-        log_entry += ("Notities: Automatische samenvatting gegenereerd en verwerkt via Gemini 3.8 Flash. "
-                      "PDF gebouwd, WordPress concept & Showcase gepubliceerd, Capacities Boek-object + Daily Note bijgewerkt. "
-                      "index.md bijgewerkt (catalogusregel onder 'Automatisch toegevoegd' + statistiek).")
+        log_entry += "Notities: Automatische samenvatting gegenereerd en verwerkt via Gemini 3.8 Flash. "
+        # Niet claimen wat niet gelukt is: deze regel beweerde onvoorwaardelijk
+        # dat PDF, WordPress en Capacities klaar waren.
+        if mislukt:
+            log_entry += (f"LET OP — {len(mislukt)} uitvoerstap(pen) MISLUKT: "
+                          f"{'; '.join(mislukt)}. Die publicatie is dus niet gedaan "
+                          "en moet met de hand worden ingehaald. ")
+        else:
+            log_entry += ("PDF gebouwd, WordPress concept & Showcase gepubliceerd, "
+                          "Capacities Boek-object + Daily Note bijgewerkt. ")
+        log_entry += "index.md bijgewerkt (catalogusregel onder 'Automatisch toegevoegd' + statistiek)."
         if ontlinkt:
             log_entry += (f" Sanitizer ontlinkte {len(ontlinkt)} niet-bestaande linkdoelen naar vette tekst "
                           f"(kandidaten voor een eigen pagina: {', '.join(ontlinkt[:15])}"
@@ -600,6 +641,17 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
     remaining_lines = lines[1:]
     with open(queue_file, "w", encoding="utf-8") as f:
         f.write("\n".join(remaining_lines) + ("\n" if remaining_lines else ""))
+
+    if mislukt:
+        print(f"\n!! {len(mislukt)} uitvoerstap(pen) MISLUKT:", file=sys.stderr)
+        for m in mislukt:
+            print(f"!!   {m}", file=sys.stderr)
+        # Het boek staat wél in de vault en is uit de wachtrij gepopt, dus dit is
+        # geen reden om opnieuw te draaien — maar het slotwoord van de run moet
+        # de waarheid zeggen, want daar kijkt het dashboard naar.
+        print(f"=== DEELS MISLUKT: boek '{data['title']}' is in de vault verwerkt, "
+              f"maar {len(mislukt)} uitvoerstap(pen) faalden. ===")
+        sys.exit(3)
 
     print(f"=== GESLAAGD! Boek '{data['title']}' is verwerkt. ===")
 

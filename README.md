@@ -96,7 +96,7 @@ in de plists.
 ## Tests
 
 ```bash
-tests/run-tests.sh        # 217 checks over 6 suites
+tests/run-tests.sh        # 224 checks over 6 suites
 tests/run-tests.sh -v     # met alle checks erbij
 ```
 

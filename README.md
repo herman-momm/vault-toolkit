@@ -58,6 +58,7 @@ shim werkt ook als je hem van buiten de vault aanroept.
 | `html2md.py` | Zet een opgehaalde HTML-pagina om naar schone Markdown |
 | `pdf-outline.py` | Print de outline/structuur van een PDF |
 | `epub-cover.py` | Cover-afbeelding uit een EPUB halen → `exports/covers/` |
+| `book-cover.py` | Omslag voor élk boekformaat: delegeert voor EPUB, rendert pagina 1 voor PDF |
 | `md2pdf.py` | Export-markdown naar huisstijl-PDF (A4, tabellen, callouts, inline afbeeldingen) |
 | `md2docx.py` | Dezelfde markdown-subset naar huisstijl-Word (.docx), accentkleur `#1F3864` |
 | `gemini-book-runner.py` | Volautomatische boeksamenvatting via Gemini (fallback als de Claude CLI aan zijn limiet zit) |
@@ -96,7 +97,7 @@ in de plists.
 ## Tests
 
 ```bash
-tests/run-tests.sh        # 224 checks over 6 suites
+tests/run-tests.sh        # 255 checks over 7 suites
 tests/run-tests.sh -v     # met alle checks erbij
 ```
 

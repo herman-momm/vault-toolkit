@@ -316,6 +316,111 @@ def run_status(vault_dir):
     return out[-1] if out else ""
 
 
+def _frontmatter(vault_dir, rel_page):
+    """Lees de YAML-frontmatter van een wiki-pagina als platte dict van strings."""
+    if not rel_page:
+        return {}
+    pad = os.path.join(vault_dir, "wiki", rel_page)
+    if not pad.endswith(".md"):
+        pad += ".md"
+    if not os.path.exists(pad):
+        return {}
+    uit, in_fm = {}, False
+    with open(pad, encoding="utf-8", errors="replace") as fh:
+        for regel in fh:
+            if regel.strip() == "---":
+                if in_fm:
+                    break
+                in_fm = True
+                continue
+            if in_fm and ":" in regel:
+                k, _, v = regel.partition(":")
+                uit[k.strip()] = v.strip().strip('"').strip("'")
+    return uit
+
+
+def source_page_tags(vault_dir, rel_page):
+    """Tags uit de frontmatter van de bronpagina, voor het Capacities-Boek.
+
+    De vault weet al waar een boek over gaat; die kennis stond alleen nooit in
+    Capacities, omdat de runner geen tags doorgaf en het push-script er geen
+    optie voor had.
+    """
+    ruw = _frontmatter(vault_dir, rel_page).get("tags", "")
+    tags = [t.strip() for t in ruw.strip("[]").split(",") if t.strip()]
+    # "boek" zegt niets op een Boek-object.
+    return [t for t in tags if t.lower() != "boek"]
+
+
+def book_metadata(vault_dir, book_filename, rel_page):
+    """ISBN en uitgever: eerst het sidecar-bestand, anders de bronpagina.
+
+    `scripts/book-metadata.json` is gekeyd op de exacte bestandsnaam in `raw/`
+    en wordt al door de Showcase-push gebruikt voor de ISBN-duplicaatcheck.
+    PDF's ontbreken daar vaak; dan is de frontmatter de terugval.
+    """
+    uit = {"isbn": "", "publisher": "", "year": ""}
+    pad = os.path.join(vault_dir, "scripts", "book-metadata.json")
+    try:
+        with open(pad, encoding="utf-8") as fh:
+            meta = json.load(fh).get(book_filename, {})
+        for k in uit:
+            if meta.get(k):
+                uit[k] = str(meta[k])
+    except (OSError, ValueError):
+        pass
+    fm = _frontmatter(vault_dir, rel_page)
+    for k, fm_key in (("isbn", "isbn"), ("publisher", "publisher"), ("year", "published")):
+        if not uit[k] and fm.get(fm_key):
+            uit[k] = fm[fm_key]
+    return uit
+
+
+def extract_cover_url(vault_dir, book_filename, toolkit_pad, mislukt):
+    """Haal de omslag uit het boek en zet hem op een publieke URL.
+
+    Twee stappen, want beide doelen willen iets anders: de Capacities-eigenschap
+    `coverImage` neemt een http(s)-URL, en de WordPress Book Showcase wil er ook
+    een. De mediabibliotheek van WordPress is de eenvoudigste plek om die URL te
+    krijgen, dus de afbeelding gaat daar één keer heen en wordt twee keer
+    gebruikt. Lukt het niet, dan is dat geen reden de run te stoppen — maar het
+    wordt wel gemeld in plaats van stil overgeslagen.
+    """
+    cover_script = toolkit_pad("book-cover.py")
+    upload_script = toolkit_pad("wp-upload-cover.py")
+    raw_pad = os.path.join(vault_dir, "raw", book_filename)
+
+    if not os.path.exists(cover_script):
+        mislukt.append("Omslag — book-cover.py niet gevonden")
+        return ""
+    print("Omslag uit het boek halen...")
+    proc = subprocess.run([sys.executable, cover_script, raw_pad],
+                          capture_output=True, text=True)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        boodschap = (proc.stderr or proc.stdout).strip().splitlines()
+        print(f"!! Omslag: geen afbeelding gevonden "
+              f"({boodschap[-1] if boodschap else 'geen uitvoer'})", file=sys.stderr)
+        mislukt.append("Omslag — geen afbeelding uit het boek te halen")
+        return ""
+    lokaal = proc.stdout.strip().splitlines()[-1]
+    print(f"  omslag: {lokaal}")
+
+    if not os.path.exists(upload_script):
+        mislukt.append("Omslag — wp-upload-cover.py niet gevonden")
+        return ""
+    print("Omslag uploaden naar de mediabibliotheek...")
+    proc = subprocess.run([sys.executable, upload_script, lokaal],
+                          capture_output=True, text=True)
+    url = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+    if proc.returncode != 0 or not url.startswith(("http://", "https://")):
+        print(f"!! Omslag uploaden mislukt: {(proc.stderr or proc.stdout).strip()[:160]}",
+              file=sys.stderr)
+        mislukt.append("Omslag — upload naar de mediabibliotheek mislukt")
+        return ""
+    print(f"  publieke URL: {url}")
+    return url
+
+
 def voer_stap_uit(naam, script, cmd, mislukt):
     """Voert een uitvoerstap uit en onthoudt het als hij niet lukt.
 
@@ -551,6 +656,14 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
             "~/Library/Mobile Documents/com~apple~CloudDocs/LLM-Workspace/"
             f"vault-toolkit/scripts/{naam}")
 
+    # --- omslag, tags en boekkenmerken verzamelen ---------------------------
+    # Deze gingen tot 6 nov 2026 verloren: de scripts konden ze aan, maar de
+    # runner gaf ze niet mee. Gevolg: Boek-objecten zonder omslag en zonder
+    # tags, en een Showcase-entry zonder beeld, ISBN of uitgever.
+    omslag_url = extract_cover_url(vault_dir, book_filename, toolkit_pad, mislukt)
+    boek_tags = source_page_tags(vault_dir, existing_src)
+    kenmerken = book_metadata(vault_dir, book_filename, existing_src)
+
     print("PDF bouwen via md2pdf.py...")
     voer_stap_uit("PDF (md2pdf.py)", toolkit_pad("md2pdf.py"),
                   [sys.executable, toolkit_pad("md2pdf.py"), export_file], mislukt)
@@ -565,8 +678,14 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
     wp_showcase_script = toolkit_pad("wp-book-showcase.py")
     cmd = [sys.executable, wp_showcase_script, export_file,
            "--title", data['title'], "--author", data['author']]
-    if data.get("year"):
-        cmd.extend(["--year", str(data['year'])])
+    if data.get("year") or kenmerken["year"]:
+        cmd.extend(["--year", str(data.get("year") or kenmerken["year"])])
+    if omslag_url:
+        cmd.extend(["--cover", omslag_url])
+    if kenmerken["isbn"]:
+        cmd.extend(["--isbn", kenmerken["isbn"]])
+    if kenmerken["publisher"]:
+        cmd.extend(["--publisher", kenmerken["publisher"]])
     voer_stap_uit("WordPress Book Showcase (wp-book-showcase.py)",
                   wp_showcase_script, cmd, mislukt)
 
@@ -585,6 +704,10 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
     ]
     if data.get("year"):
         cap_cmd.extend(["--year", str(data['year'])])
+    if omslag_url:
+        cap_cmd.extend(["--cover", omslag_url])
+    if boek_tags:
+        cap_cmd.extend(["--tags", ", ".join(boek_tags)])
     voer_stap_uit("Capacities Boek-object (capacities-push.py)", cap_script,
                   cap_cmd, mislukt)
 

@@ -24,6 +24,7 @@ behalve `test_launchd.sh`, dat niets neerzet en alleen de bestanden in
 | `test_automation_check.sh` | de verouderings- én uitkomstcheck op geplande taken in `vault-status.py` | 29 |
 | `test_launchd.sh` | het schema en de wrappers in `launchd/`, en de dekking van `install.sh` | 75 |
 | `test_tls.sh` | dat geen script certificaatcontrole omzeilt, en dat `vaultenv.tls_context()` echt verifieert | 15 |
+| `test_book_enrichment.py` | omslag, tags, Persoon-objecten en boekkenmerken bij een boekpublicatie | 31 |
 
 `fixture_vault.py` is geen suite maar het bouwsteentje eronder: het zet een
 synthetische vault met een handvol bekende pagina's neer.
@@ -64,6 +65,15 @@ een stille fout duur is:
   De scan tokeniseert de bestanden in plaats van te grepen, omdat `vaultenv.py`
   en `capacities-check.py` die namen in hun docstring noemen om uit te leggen
   waarom ze er niet meer staan.
+- De **boekverrijking** faalde niet, hij deed te weinig — het lastigste geval om
+  op te merken. `capacities-push.py` en `wp-book-showcase.py` konden een omslag,
+  ISBN en uitgever al aan, maar de runner gaf ze niet mee, en tags en
+  Persoon-objecten bestonden in het push-script helemaal niet. Het resultaat was
+  een Boek-object met lege `coverImage`, lege `tags` en één van de twee auteurs,
+  zonder één foutmelding. Deze suite legt de bedoelde uitkomst vast: welke
+  payload er naar `PATCH /object/markdown` gaat, dat een bestaande persoon wordt
+  gekoppeld en een onbekende aangemaakt, en dat `book-cover.py` ook voor een PDF
+  een omslag oplevert.
 - Het **launchd-schema** is de laag waar al die taken aan hangen. De reden dat de
   websitecontrole 37 uur stil stond, was een logpad in iCloud: launchd kan het
   proces dan niet starten en faalt met `EX_CONFIG 78` — geen regel in het log,

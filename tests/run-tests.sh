@@ -46,6 +46,7 @@ draai "store-ID (sync-blob-inbox)"        bash    "$HIER/test_store_id.sh"
 draai "automatisering (vault-status)"      bash    "$HIER/test_automation_check.sh"
 draai "launchd (plists + wrappers)"        bash    "$HIER/test_launchd.sh"
 draai "TLS (certificaatcontrole)"          bash    "$HIER/test_tls.sh"
+draai "boekverrijking (omslag/tags/auteur)" python3 "$HIER/test_book_enrichment.py"
 
 echo
 if [ "${#falend[@]}" -gt 0 ]; then

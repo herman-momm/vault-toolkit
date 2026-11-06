@@ -75,7 +75,110 @@ def post_daily_note(markdown: str, token: str, space_id: str):
     return api_request(endpoint, {"noTimeStamp": True, "markdown": markdown}, method="POST", token=token)
 
 
-def create_book(title: str, description: str, year: int, markdown_file: str, cover_url: str, author_names: str, token: str, space_id: str):
+# Structuur-id's van deze space. Het Persoon-type is hetzelfde dat
+# fill-capacities-photos.py gebruikt.
+PERSON_STRUCTURE_ID = "73abbe4c-adf1-4443-8cb2-20c34b5c029c"
+
+# Toevoegingen achter een auteursnaam die geen deel van de naam zijn.
+_ROLSUFFIX = re.compile(
+    r"\s*\((?:red\.?|ed\.?|eds\.?|samenst\.?|vert\.?)\)\s*$", re.I)
+# "(met bijdragen van X)" bevat een échte auteur: maak er een scheidingsteken van.
+_BIJDRAGEN = re.compile(r"\s*\((?:met\s+)?bijdragen\s+van\s+([^)]+)\)", re.I)
+
+
+def split_authors(namen: str):
+    """Splits een auteursveld in losse namen.
+
+    De runner levert één string aan ("David Kertai & Jona Lendering", soms
+    "A, B en C" of "X (met bijdragen van Y)"). Eén string betekende tot nu toe
+    één markdown-regel; voor Persoon-objecten is een echte lijst nodig.
+    """
+    if not namen:
+        return []
+    tekst = _BIJDRAGEN.sub(r", \1", namen)
+    delen = re.split(r"\s*(?:&|;|/|,| en )\s*", tekst)
+    uit = []
+    for d in delen:
+        d = _ROLSUFFIX.sub("", d)
+        # "e.a." / "et al." horen niet bij de naam. Dit gebeurt per deel en niet
+        # op de hele string, want de punten maken woordgrenzen onbetrouwbaar.
+        d = re.sub(r"\s+(?:e\.?\s*a\.?|et\s+al\.?)\s*$", "", d, flags=re.I)
+        d = d.strip(" .,")
+        # Een "naam" van één teken of puur cijfers is geen naam.
+        if len(d) > 2 and not d.isdigit() and d not in uit:
+            uit.append(d)
+    return uit
+
+
+def find_or_create_person(naam: str, token: str, space_id: str):
+    """Zoek een Persoon-object op titel; maak het aan als het niet bestaat.
+
+    Retourneert de titel zoals die in Capacities staat (nodig voor de
+    `[[wikilink]]`-vorm), of None als het misging. Bewust zoeken-dan-aanmaken:
+    de API documenteert niet dat een wikilink naar een onbekende titel vanzelf
+    een object maakt, en een stil niet-gelegde link is precies wat we hier aan
+    het repareren zijn.
+    """
+    try:
+        res = api_request("/objects/search",
+                          {"query": naam, "structureIds": [PERSON_STRUCTURE_ID]},
+                          method="POST", token=token)
+    except Exception as e:
+        print(f"  ! zoeken naar persoon '{naam}' mislukte: {e}", file=sys.stderr)
+        return None
+
+    treffers = res.get("objects") or res.get("results") or []
+    for obj in treffers:
+        titel = (obj.get("title") or "").strip()
+        if titel.lower() == naam.strip().lower():
+            print(f"  · auteur gekoppeld aan bestaand Persoon-object: {titel}")
+            return titel
+
+    try:
+        nieuw = api_request(
+            "/object",
+            {"structureId": PERSON_STRUCTURE_ID,
+             "properties": {"title": {"type": "title", "title": {"value": naam}}}},
+            method="POST", token=token)
+    except Exception as e:
+        print(f"  ! aanmaken van persoon '{naam}' mislukte: {e}", file=sys.stderr)
+        return None
+    if nieuw.get("id"):
+        print(f"  · nieuw Persoon-object aangemaakt: {naam}")
+        return naam
+    return None
+
+
+def update_book_properties(obj_id, tags, cover_url, author_titles, token):
+    """Zet tags, omslag en auteurs via PATCH /object/markdown.
+
+    Deze drie zijn eigenschappen van het Boek-type en kunnen niet in de body:
+    `tags` is een kommalijst met namen, `coverImage` neemt een http(s)-URL en
+    importeert die als MediaImage, en `auteur` neemt `[[Titel]]`-wikilinks en
+    **vervangt** de hele lijst — dus alle auteurs in één keer meesturen.
+    """
+    regels = []
+    if tags:
+        regels.append("tags: " + ", ".join(tags))
+    if cover_url and cover_url.startswith(("http://", "https://")):
+        regels.append("coverImage: " + cover_url)
+    if author_titles:
+        regels.append("auteur: " + ", ".join(f"[[{t}]]" for t in author_titles))
+    if not regels:
+        return False
+
+    md = "---\n" + "\n".join(regels) + "\n---\n"
+    try:
+        api_request("/object/markdown", {"id": obj_id, "markdown": md},
+                    method="PATCH", token=token)
+    except Exception as e:
+        print(f"  ! eigenschappen zetten mislukte: {e}", file=sys.stderr)
+        return False
+    print("Eigenschappen gezet: " + " · ".join(regels))
+    return True
+
+
+def create_book(title: str, description: str, year: int, markdown_file: str, cover_url: str, author_names: str, token: str, space_id: str, tags=None):
     body = {
         "structureId": "b7b81235-c1dd-4261-b742-2edaa4ed7951",
         "properties": {
@@ -90,9 +193,20 @@ def create_book(title: str, description: str, year: int, markdown_file: str, cov
     obj_id = res.get("id")
     print(f"Boek aangemaakt in Capacities (ID: {obj_id})")
 
+    # Eigenschappen die niet via de aanmaak-body kunnen: tags, omslag, auteurs.
+    auteur_titels = []
+    for naam in split_authors(author_names):
+        titel = find_or_create_person(naam, token, space_id)
+        if titel:
+            auteur_titels.append(titel)
+    update_book_properties(obj_id, tags or [], cover_url, auteur_titels, token)
+
     header_blocks = []
 
-    if cover_url:
+    # De omslag hoort in de `coverImage`-eigenschap. Alleen als dat niet kon —
+    # een lokaal pad in plaats van een URL — valt hij terug op een plaatje in de
+    # body, zodat hij tenminste ergens zichtbaar is.
+    if cover_url and not cover_url.startswith(("http://", "https://")):
         header_blocks.append(f"![Omslag]({cover_url})\n")
 
     authors_info = fetch_wikipedia_author(author_names or description)
@@ -117,7 +231,17 @@ def create_book(title: str, description: str, year: int, markdown_file: str, cov
 
     if full_content.strip():
         api_request("/blocks/append", {"id": obj_id, "markdown": full_content.strip()}, method="POST", token=token)
-        print("Omslag, auteurspersoon-gegevens en samenvattingsblokken toegevoegd.")
+        # Benoem wat er daadwerkelijk in de body staat. Deze regel meldde eerder
+        # onvoorwaardelijk "Omslag, auteurspersoon-gegevens en samenvattings-
+        # blokken", ook als er geen omslag en geen auteursinfo was.
+        delen = []
+        if header_blocks and header_blocks[0].startswith("![Omslag]"):
+            delen.append("omslag (in de body)")
+        if authors_info:
+            delen.append(f"{len(authors_info)} auteursprofiel(en) uit Wikipedia")
+        if body_md:
+            delen.append("samenvattingsblokken")
+        print("Toegevoegd aan de body: " + (" · ".join(delen) or "niets"))
 
     url = f"https://app.capacities.io/{space_id}/{obj_id}"
     print(f"Capacities URL: {url}")
@@ -138,7 +262,10 @@ def main():
     parser.add_argument("--desc", help="Korte beschrijving")
     parser.add_argument("--year", type=int, help="Jaar van verschijnen")
     parser.add_argument("--author", help="Naam van auteur(s)")
-    parser.add_argument("--cover", help="Omslagafbeelding URL of pad")
+    parser.add_argument("--cover", help="Omslagafbeelding: http(s)-URL (wordt de "
+                                        "coverImage-eigenschap) of lokaal pad "
+                                        "(belandt als plaatje in de body)")
+    parser.add_argument("--tags", help="Kommalijst met tagnamen voor het Boek-object")
 
     args = parser.parse_args()
 
@@ -154,7 +281,8 @@ def main():
             cover_url=args.cover or "",
             author_names=args.author or args.desc or "",
             token=token,
-            space_id=space_id
+            space_id=space_id,
+            tags=[t.strip() for t in (args.tags or "").split(",") if t.strip()],
         )
     else:
         parser.print_help()

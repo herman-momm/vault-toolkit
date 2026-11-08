@@ -742,8 +742,12 @@ GEEF JE ANTWOORD IN EXACT DE VOLGENDE JSON STRUCTUUR (zonder markdown codeblocks
     if args.publiceer_zelf:
         print("WordPress concept publiceren via wp-publish-draft.py...")
         wp_draft_script = toolkit_pad("wp-publish-draft.py")
+        # --type knowledgebase hoort hier net zo bij als in deel B: zonder dit
+        # argument valt het KB-artikel terug op het posttype `posts` en komt het
+        # ergens anders terecht dan alle andere boeksamenvattingen.
         voer_stap_uit("WordPress-concept (wp-publish-draft.py)", wp_draft_script,
                       [sys.executable, wp_draft_script, export_file,
+                       "--type", "knowledgebase",
                        "--title", f"{data['title']} ({data['author']})"], mislukt)
 
         print("WordPress Book Showcase publiceren via wp-book-showcase.py...")

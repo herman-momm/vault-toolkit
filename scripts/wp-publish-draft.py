@@ -16,7 +16,9 @@ WP_APP_PASSWORD, WP_GS_BOOKS_LICENSE) — het normale pad in een cloud-sessie
 zonder lokaal credentialbestand.
 
 Zet ALTIJD status=draft tenzij expliciet anders; publiceert dus niet openbaar.
-Print bij succes de post-id en de bewerk-URL (wp-admin).
+Print bij succes de post-id, het posttype en de bewerk-URL (wp-admin), plus een
+waarschuwing dat een concept in een eigen posttype niet bij Berichten en niet op
+de site te vinden is.
 """
 import sys, os, re, json, argparse, tempfile, subprocess, html as _html
 
@@ -307,9 +309,20 @@ def main():
     res = json.loads(raw)
 
     pid = res.get("id")
-    print(f"OK: concept aangemaakt (id={pid}, status={res.get('status')})")
+    status = res.get("status")
+    soort = "concept" if status == "draft" else "bericht"
+    print(f"OK: {soort} aangemaakt (id={pid}, status={status}, posttype={args.type})")
     print(f"Titel: {title}")
     print(f"Bewerken: {url}/wp-admin/post.php?post={pid}&action=edit")
+    # Een los "id=2421" is niet terug te vinden: een KB-artikel staat in het
+    # posttype `knowledgebase` en dus NIET in de lijst Berichten, en een concept
+    # is nergens op de site te zien. Zeg dat er daarom expliciet bij, zodat een
+    # geslaagde publicatie niet als "niet gebeurd" wordt gelezen.
+    if args.type != "posts":
+        print(f"LET OP: dit staat in posttype '{args.type}', niet bij Berichten — "
+              f"gebruik de bewerk-link hierboven.")
+    if status == "draft":
+        print("LET OP: een concept is niet op de site te zien, alleen via de bewerk-link.")
 
     # Reeds geuploade cover (cover_mid) als uitgelichte afbeelding zetten
     if cover_mid and pid:

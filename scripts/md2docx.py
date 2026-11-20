@@ -91,11 +91,13 @@ def clean(text: str) -> str:
     return text
 
 
-INLINE_TOKEN = re.compile(r"(\*\*.+?\*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)]+\))")
+INLINE_TOKEN = re.compile(
+    r"(\*\*.+?\*\*|\*[^\s*][^*\n]*?\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)]+\))"
+)
 
 
 def add_inline_runs(paragraph, text, base_size=9.5, color=None):
-    """Parse **vet**, `code`, [[wikilink]], [tekst](link) en voeg runs toe."""
+    """Parse **vet**, *cursief*, `code`, [[wikilink]], [tekst](link) en voeg runs toe."""
     text = clean(text)
     pos = 0
     for m in INLINE_TOKEN.finditer(text):
@@ -108,6 +110,9 @@ def add_inline_runs(paragraph, text, base_size=9.5, color=None):
         if token.startswith("**"):
             r = paragraph.add_run(token[2:-2])
             r.bold = True
+        elif token.startswith("*"):
+            r = paragraph.add_run(token[1:-1])
+            r.italic = True
         elif token.startswith("`"):
             r = paragraph.add_run(token[1:-1])
             r.font.name = "Courier New"

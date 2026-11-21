@@ -47,6 +47,7 @@ draai "automatisering (vault-status)"      bash    "$HIER/test_automation_check.
 draai "launchd (plists + wrappers)"        bash    "$HIER/test_launchd.sh"
 draai "TLS (certificaatcontrole)"          bash    "$HIER/test_tls.sh"
 draai "boekverrijking (omslag/tags/auteur)" python3 "$HIER/test_book_enrichment.py"
+draai "boekwrapper (slaap/retry/exitcode)" bash    "$HIER/test_book_wrapper.sh"
 
 echo
 if [ "${#falend[@]}" -gt 0 ]; then
